@@ -275,6 +275,10 @@ type ServerEvent =
   | { seq: number; ts: string; type: "guardrail.alert";   data: GuardrailAlert }
   | { seq: number; ts: string; type: "contradiction";     data: Contradiction }
   | { seq: number; ts: string; type: "chart.entry";       data: ChartEntry }
+
+  // patient context model (Phase 1) — a slot's belief changed; re-render its row
+  | { seq: number; ts: string; type: "context.slot_updated";
+      data: { slot: ContextSlot; completeness: ContextCompleteness } }
   | { seq: number; ts: string; type: "todo.update";
       data: { op: "add" | "complete" | "edit"; todo: Todo } }
 
@@ -307,6 +311,75 @@ type ServerEvent =
   dedupe overlapping events by `(type, data.id)`.
 - Chart entries with `category: "contradiction"` also appear in the patient-page chart —
   they survive into the handoff on purpose.
+
+## Patient Context Model (Phase 1 — agentic harness)
+
+The PCM is the structured, provenance-tracked belief state the agentic harness reasons
+over. It is a **view** on top of the append-only chart, never a replacement. Slots are
+**derived** from the visit's guardrails + node goals (not hand-authored); every belief
+carries a full provenance ledger entry so its quality is auditable — which user, who they
+are, when, whether it came from the patient, and whether it was pulled from live speech vs
+typed vs seeded from the record.
+
+```ts
+type SlotStatus = "known" | "uncertain" | "stale" | "contradicted" | "missing";
+
+interface ContextLedgerEntry {      // one contribution to a belief — the quality trail
+  id: number;
+  slot_key: string;
+  value: string;
+  status: SlotStatus;
+  confidence: number;               // 0..1
+  source_kind: "seed" | "speech" | "typed" | "image" | "measurement" | "inferred";
+  source_channel: string;           // "seed" | "soniox" | "inject" | "image_upload" | ...
+  actor_role: string;               // "patient" | "nurse" | "doctor" | "clinician" | "system" | ...
+  actor_id: string;                 // stable id of who: "patient", specialist name, agent
+  actor_name: string;               // display name of who
+  from_patient: boolean;            // did this originate from the patient?
+  extracted_from_speech: boolean;   // pulled from live/transcribed speech (vs typed/seed)
+  model: string;                    // model that asserted it, if inferred
+  session_id: number | null;
+  node_id: number | null;
+  turn_id: number | null;           // transcript turn this came from
+  raw_quote: string;                // verbatim supporting text (the citation)
+  ts: string;
+}
+
+interface ContextSlot {
+  id: number;
+  visit_id: number;
+  key: string;                      // stable, e.g. "chest_pain.radiation"
+  label: string;
+  category: string;                 // symptom | vital | medication | risk | history | logistics
+  status: SlotStatus;
+  value: string;                    // current best value ("" when missing)
+  confidence: number;
+  required: boolean;
+  why_required: string;             // the goal / guardrail that made it required
+  updated_ts: string;
+  provenance: ContextLedgerEntry | null;   // the ledger row justifying the current value
+}
+
+interface ContextCompleteness {
+  total_required: number;
+  counts: Record<SlotStatus, number>;
+  open_gaps: number;                // slots still missing/uncertain/stale/contradicted
+  percent: number;                  // weighted 0..100 readiness score
+}
+
+interface PatientContext { visit_id: number; slots: ContextSlot[];
+  completeness: ContextCompleteness; ledger: ContextLedgerEntry[]; }
+```
+
+```
+GET /api/visits/{visit_id}/context
+  returns  PatientContext            // belief state + completeness + full ledger (newest first)
+```
+
+Live updates arrive on the events socket as `context.slot_updated` (above): the backend's
+context-integrator worker (a per-turn accumulator, like chart/todos) folds each patient
+turn into the slots and broadcasts the changed slot plus the new completeness. The frontend
+overlays these on a one-time `GET .../context` baseline.
 
 ## Migration note (backend, current code)
 

@@ -27,10 +27,13 @@ WORKER_SPECS: dict[str, tuple[str, int]] = {
     "guardrails": (MODEL_HAIKU, 512),
     "chart": (MODEL_HAIKU, 512),
     "todos": (MODEL_HAIKU, 512),
+    "pcm": (MODEL_HAIKU, 640),
 }
 
 URGENT_WORKERS = ("contradictions", "suggestions", "guardrails")
-ACCUMULATOR_WORKERS = ("chart", "todos")
+# pcm (context integrator) accumulates like chart/todos: never cancelled, covers
+# every turn since the last completed pass (SPEC.md § Per-turn workers).
+ACCUMULATOR_WORKERS = ("chart", "todos", "pcm")
 
 # In-memory latency samples: (session_id, turn_id, worker, ms). For the 3s-budget check.
 latency_samples: list[tuple[int, int, str, int]] = []
@@ -255,10 +258,67 @@ async def _handle_todos(ctx: dict, out: dict) -> None:
     await apply_todo_ops(ctx, out.get("todo_updates") or [])
 
 
+# ---------------------------------------------------------------- context integrator
+
+_PCM_STATUS = ("known", "uncertain", "contradicted")
+
+
+def _attribute_turn(session_id: int, quote: str) -> dict | None:
+    """Find the transcript turn a slot update came from, so the ledger can record
+    WHO said it. Match the model's quote to a turn; fall back to the latest patient
+    turn. Provenance is best-effort but always points at a real turn when one exists."""
+    turns = q("SELECT * FROM transcript_turns WHERE session_id=? ORDER BY id DESC", (session_id,))
+    needle = re.sub(r"[^a-z0-9 ]", "", (quote or "").lower())[:60].strip()
+    if needle:
+        for t in turns:
+            if needle in re.sub(r"[^a-z0-9 ]", "", t["text"].lower()):
+                return t
+    for t in turns:            # fall back to the most recent patient turn
+        if t["speaker"] == "patient":
+            return t
+    return turns[0] if turns else None
+
+
+async def _handle_pcm(ctx: dict, out: dict) -> None:
+    from orchestrator import pcm
+    sid, vid = ctx["session"]["id"], ctx["visit"]["id"]
+    model = WORKER_SPECS["pcm"][0]
+    for item in out.get("slot_updates") or []:
+        key = (item.get("key") or "").strip()
+        value = (item.get("value") or "").strip()
+        if not key or not value:
+            continue
+        status = item.get("status") if item.get("status") in _PCM_STATUS else "uncertain"
+        try:
+            confidence = float(item.get("confidence"))
+        except (TypeError, ValueError):
+            confidence = 0.6
+        quote = (item.get("quote") or "").strip()
+        turn = _attribute_turn(sid, quote)
+        if turn is not None:
+            prov = pcm.turn_provenance(turn, ctx, model=model)
+        else:  # no transcript to cite — attribute to the integrator itself
+            prov = {"source_kind": "inferred", "actor_role": "system",
+                    "actor_id": "doc", "actor_name": "DOC integrator",
+                    "from_patient": False, "extracted_from_speech": False,
+                    "model": model, "session_id": sid, "node_id": ctx["node"]["id"]}
+        slot = pcm.record_contribution(
+            vid, key, value, status, confidence,
+            raw_quote=quote or (turn["text"] if turn else ""), **prov,
+        )
+        if slot is None:
+            continue  # no-op (unchanged) or unknown key — ledger already has the audit row
+        await events.broadcast(sid, "context.slot_updated", {
+            "slot": pcm.slot_shape(slot),
+            "completeness": pcm.completeness(vid),
+        })
+
+
 _HANDLERS = {
     "contradictions": _handle_contradictions,
     "suggestions": _handle_suggestions,
     "guardrails": _handle_guardrails,
     "chart": _handle_chart,
     "todos": _handle_todos,
+    "pcm": _handle_pcm,
 }

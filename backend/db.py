@@ -89,6 +89,45 @@ CREATE TABLE IF NOT EXISTS journey_mutations (
   status TEXT NOT NULL DEFAULT 'proposed',           -- proposed|accepted|dismissed
   ts TEXT NOT NULL
 );
+
+-- == Patient Context Model (Phase 1) — the living belief state the agentic ==
+-- == harness reasons over. Slots are DERIVED from goals+guardrails, not      ==
+-- == hand-authored. context_slots holds the CURRENT belief; context_ledger   ==
+-- == is the append-only provenance/quality trail behind every belief.        ==
+CREATE TABLE IF NOT EXISTS context_slots (
+  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL,
+  key TEXT NOT NULL,                                 -- stable slot key, e.g. "chest_pain.radiation"
+  label TEXT NOT NULL,                               -- human display label
+  category TEXT NOT NULL DEFAULT 'clinical',         -- symptom|vital|medication|risk|history|logistics
+  status TEXT NOT NULL DEFAULT 'missing',            -- known|uncertain|stale|contradicted|missing
+  value TEXT NOT NULL DEFAULT '',                    -- current best value ('' when missing)
+  confidence REAL NOT NULL DEFAULT 0.0,              -- 0..1
+  required INTEGER NOT NULL DEFAULT 1,               -- is this slot needed for THIS visit?
+  why_required TEXT NOT NULL DEFAULT '',             -- goal / guardrail that made it required
+  current_ledger_id INTEGER,                         -- provenance pointer -> context_ledger.id
+  updated_ts TEXT NOT NULL DEFAULT '',
+  UNIQUE(visit_id, key)
+);
+CREATE TABLE IF NOT EXISTS context_ledger (
+  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL,
+  slot_id INTEGER,                                   -- NULL if it could not be matched to a slot
+  slot_key TEXT NOT NULL DEFAULT '',
+  value_written TEXT NOT NULL DEFAULT '',
+  status_written TEXT NOT NULL DEFAULT '',
+  confidence REAL NOT NULL DEFAULT 0.0,
+  -- provenance / quality dimensions (this is the whole point of the ledger):
+  source_kind TEXT NOT NULL,                         -- seed|speech|typed|image|measurement|inferred
+  source_channel TEXT NOT NULL DEFAULT '',           -- seed|soniox|inject|image_upload|manual|compiler
+  actor_role TEXT NOT NULL DEFAULT 'system',         -- patient|staff|clinician|nurse|system|intake_agent
+  actor_id TEXT NOT NULL DEFAULT '',                 -- stable id of who: "patient", specialist name, agent
+  actor_name TEXT NOT NULL DEFAULT '',               -- display name of who
+  from_patient INTEGER NOT NULL DEFAULT 0,           -- did this originate from the patient?
+  extracted_from_speech INTEGER NOT NULL DEFAULT 0,  -- pulled from live/transcribed speech (vs typed/seed)
+  model TEXT NOT NULL DEFAULT '',                    -- model that asserted it, if inferred
+  session_id INTEGER, node_id INTEGER, turn_id INTEGER,
+  raw_quote TEXT NOT NULL DEFAULT '',                -- verbatim supporting text (the citation)
+  ts TEXT NOT NULL
+);
 """
 
 

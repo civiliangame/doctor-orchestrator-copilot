@@ -117,3 +117,9 @@ def seed_all() -> None:
             {"text": "Recheck blood pressure", "priority": "normal"},
         ]),
         created_ts=ts)
+
+    # Patient Context Model: derive the slots this visit needs from the guardrails +
+    # goals just seeded, then fill what the record already establishes (with provenance).
+    from orchestrator import pcm
+    pcm.derive_required_slots(visit_id)
+    pcm.seed_context(visit_id)

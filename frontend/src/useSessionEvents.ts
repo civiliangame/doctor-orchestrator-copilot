@@ -9,6 +9,8 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { api } from "./api";
 import type {
   ChartEntry,
+  ContextCompleteness,
+  ContextSlot,
   Contradiction,
   GuardrailAlert,
   Journey,
@@ -31,6 +33,8 @@ export interface SessionViewState {
   contradictions: Contradiction[];
   chartEntries: ChartEntry[];
   todos: Todo[];
+  contextSlots: ContextSlot[]; // live slot updates during this session (overlay a baseline fetch)
+  contextCompleteness: ContextCompleteness | null;
   pendingMutation: JourneyMutation | null;
   journey: Journey | null; // set only when a journey.updated arrives mid-session
   thinking: boolean;
@@ -49,6 +53,8 @@ const initial: SessionViewState = {
   contradictions: [],
   chartEntries: [],
   todos: [],
+  contextSlots: [],
+  contextCompleteness: null,
   pendingMutation: null,
   journey: null,
   thinking: false,
@@ -90,6 +96,12 @@ function reducer(s: SessionViewState, a: Action): SessionViewState {
       return { ...s, thinking: false, contradictions: upsert(s.contradictions, e.data) };
     case "chart.entry":
       return { ...s, chartEntries: upsert(s.chartEntries, e.data) };
+    case "context.slot_updated":
+      return {
+        ...s,
+        contextSlots: upsert(s.contextSlots, e.data.slot),
+        contextCompleteness: e.data.completeness,
+      };
     case "todo.update":
       return { ...s, todos: upsert(s.todos, e.data.todo) };
     case "journey.mutation_proposed":

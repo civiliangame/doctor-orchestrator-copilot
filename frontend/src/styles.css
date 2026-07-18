@@ -302,3 +302,66 @@ textarea { width: 100%; resize: vertical; }
   background: var(--bg-raise2); border: 1px solid var(--line);
   border-radius: 8px; padding: 8px 14px; font-size: 1rem;
 }
+
+/* ---------- patient context panel (PCM, Phase 1) ---------- */
+.context-head { display: flex; align-items: baseline; justify-content: space-between; }
+.context-head h2 { margin: 0; }
+.context-pct { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+.completeness-bar {
+  display: flex; height: 8px; border-radius: 6px; overflow: hidden;
+  background: var(--bg-raise2); margin: 10px 0 16px; border: 1px solid var(--line);
+}
+.cbar-seg { height: 100%; }
+.cbar-seg.slot-known { background: var(--green); }
+.cbar-seg.slot-uncertain { background: var(--amber); }
+.cbar-seg.slot-stale { background: var(--staff); }
+.cbar-seg.slot-contradicted { background: var(--red); }
+.cbar-seg.slot-missing { background: var(--line); }
+
+.slot-list { display: flex; flex-direction: column; gap: 8px; }
+.slot-row {
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px;
+  padding: 8px 12px; background: var(--bg-raise2);
+}
+.slot-row.slot-known { border-left-color: var(--green); }
+.slot-row.slot-uncertain { border-left-color: var(--amber); }
+.slot-row.slot-stale { border-left-color: var(--staff); }
+.slot-row.slot-contradicted { border-left-color: var(--red); }
+.slot-row.slot-missing { border-left-color: var(--line); }
+
+.slot-main {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: none; padding: 0; color: var(--text); cursor: pointer;
+}
+.slot-main:hover { border: none; }
+.slot-pill {
+  flex: none; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px;
+  font-weight: 700; padding: 2px 7px; border-radius: 999px; color: #06121f;
+}
+.slot-pill.slot-known { background: var(--green); }
+.slot-pill.slot-uncertain { background: var(--amber); }
+.slot-pill.slot-stale { background: var(--staff); }
+.slot-pill.slot-contradicted { background: var(--red); color: #fff; }
+.slot-pill.slot-missing { background: var(--line); color: var(--text-dim); }
+.slot-label { flex: none; font-weight: 600; font-size: 0.9rem; }
+.slot-value { flex: 1; color: var(--text-dim); font-size: 0.9rem; text-align: right; }
+
+.slot-prov { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.prov-chip {
+  font-size: 0.68rem; padding: 1px 7px; border-radius: 999px;
+  background: var(--bg-raise); border: 1px solid var(--line); color: var(--text-dim);
+}
+.prov-chip.prov-patient { color: var(--patient); border-color: var(--patient); }
+.prov-chip.prov-speech { color: var(--staff); border-color: var(--staff); }
+.prov-meta { font-size: 0.72rem; color: var(--text-dim); }
+
+.slot-history { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.slot-why { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 6px; }
+.hist-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  font-size: 0.78rem; padding: 4px 0; border-bottom: 1px solid var(--bg-raise2);
+}
+.hist-status { text-transform: uppercase; font-weight: 700; color: var(--text-dim); font-size: 0.68rem; }
+.hist-val { color: var(--text); }
+.hist-quote { font-style: italic; color: var(--patient); }
+.hist-src { margin-left: auto; color: var(--text-dim); }
