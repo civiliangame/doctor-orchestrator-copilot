@@ -7,6 +7,7 @@ import { api } from "../api";
 import { useSessionEvents } from "../useSessionEvents";
 import { useMic } from "../useMic";
 import { JourneyTimeline } from "../components/JourneyTimeline";
+import { ContextPanel } from "../components/ContextPanel";
 import type {
   Contradiction,
   GuardrailAlert,
@@ -33,6 +34,7 @@ export function SessionScreen({ sessionId, nodeId, patientId, station }: Session
   // Initial journey from the patient page; state.journey (journey.updated) overrides.
   const [initialJourney, setInitialJourney] = useState<Journey | null>(null);
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [visitId, setVisitId] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     api
@@ -41,6 +43,7 @@ export function SessionScreen({ sessionId, nodeId, patientId, station }: Session
         if (cancelled) return;
         setInitialJourney(page.journey);
         setPatient(page.patient);
+        setVisitId(page.visit.id);
       })
       .catch(() => undefined); // non-fatal; timeline appears on journey.updated
     return () => {
@@ -184,6 +187,14 @@ export function SessionScreen({ sessionId, nodeId, patientId, station }: Session
           <h2>Journey</h2>
           <JourneyTimeline journey={journey} />
         </div>
+      )}
+
+      {visitId !== null && (
+        <ContextPanel
+          visitId={visitId}
+          liveSlots={state.contextSlots}
+          liveCompleteness={state.contextCompleteness}
+        />
       )}
 
       <div className="session-grid">

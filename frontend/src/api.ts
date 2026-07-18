@@ -6,6 +6,7 @@ import type {
   Guardrail,
   Journey,
   JourneyMutation,
+  PatientContext,
   PatientPage,
   Role,
   SessionState,
@@ -75,6 +76,8 @@ export const api = {
     ),
 
   session: (sessionId: number) => req<SessionState>("GET", `/api/sessions/${sessionId}`),
+
+  context: (visitId: number) => req<PatientContext>("GET", `/api/visits/${visitId}/context`),
 
   sessionEnd: (sessionId: number) =>
     req<{ compiling: boolean }>("POST", `/api/sessions/${sessionId}/end`),

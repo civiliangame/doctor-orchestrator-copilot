@@ -129,6 +129,60 @@ export interface JourneyMutation {
   ts: string;
 }
 
+// Patient Context Model (Phase 1) ------------------------------------------
+export type SlotStatus = "known" | "uncertain" | "stale" | "contradicted" | "missing";
+
+// One provenance ledger entry — the quality trail behind a belief.
+export interface ContextLedgerEntry {
+  id: number;
+  slot_key: string;
+  value: string;
+  status: SlotStatus;
+  confidence: number;
+  source_kind: "seed" | "speech" | "typed" | "image" | "measurement" | "inferred";
+  source_channel: string;
+  actor_role: string;
+  actor_id: string;
+  actor_name: string;
+  from_patient: boolean;
+  extracted_from_speech: boolean;
+  model: string;
+  session_id: number | null;
+  node_id: number | null;
+  turn_id: number | null;
+  raw_quote: string;
+  ts: string;
+}
+
+export interface ContextSlot {
+  id: number;
+  visit_id: number;
+  key: string;
+  label: string;
+  category: string;
+  status: SlotStatus;
+  value: string;
+  confidence: number;
+  required: boolean;
+  why_required: string;
+  updated_ts: string;
+  provenance: ContextLedgerEntry | null;
+}
+
+export interface ContextCompleteness {
+  total_required: number;
+  counts: Record<SlotStatus, number>;
+  open_gaps: number;
+  percent: number;
+}
+
+export interface PatientContext {
+  visit_id: number;
+  slots: ContextSlot[];
+  completeness: ContextCompleteness;
+  ledger: ContextLedgerEntry[];
+}
+
 export interface Appointment {
   node_id: number;
   patient_id: number;
@@ -177,6 +231,7 @@ export type ServerEvent =
   | { seq: number; ts: string; type: "guardrail.alert"; data: GuardrailAlert }
   | { seq: number; ts: string; type: "contradiction"; data: Contradiction }
   | { seq: number; ts: string; type: "chart.entry"; data: ChartEntry }
+  | { seq: number; ts: string; type: "context.slot_updated"; data: { slot: ContextSlot; completeness: ContextCompleteness } }
   | { seq: number; ts: string; type: "todo.update"; data: { op: "add" | "complete" | "edit"; todo: Todo } }
   | { seq: number; ts: string; type: "journey.mutation_proposed"; data: JourneyMutation }
   | { seq: number; ts: string; type: "journey.updated"; data: Journey }

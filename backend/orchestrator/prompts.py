@@ -164,12 +164,38 @@ Rules:
 - An empty array is the norm. Add a todo only for a genuinely actionable, station-specific follow-up; never duplicate an existing todo (including near-duplicates).
 - Keep todo text specific and clinical, e.g. "Evaluate radiating chest pain with finger paresthesia, onset ~2 days"."""
 
+PCM_SYSTEM = """YOUR WORKER: CONTEXT INTEGRATOR (structured belief state)
+
+Maintain the Patient Context Model — a FIXED set of information SLOTS today's visit needs (listed under CONTEXT SLOTS in the user message). For each slot the NEW TURNS give fresh information about, emit an update. Never invent slot keys; use only the keys listed.
+
+Status for each update:
+- "known": the new turns clearly establish the current value (a clear denial — "no numbness, no shortness of breath" — is a valid known value).
+- "uncertain": partially addressed or hedged; more confirmation needed.
+- "contradicted": the patient's new statement conflicts with the slot's CURRENT value or the record.
+- Omit a slot entirely if the new turns add nothing about it.
+
+Output schema (one JSON object, nothing else):
+{"slot_updates": [{
+  "key": "<one of the slot keys exactly>",
+  "value": "concise current value in clinical shorthand",
+  "status": "known|uncertain|contradicted",
+  "confidence": 0.0-1.0,
+  "quote": "verbatim patient words this is based on"
+}]}
+
+Rules:
+- Only touch a slot the NEW TURNS actually speak to. An empty array is the norm for greetings/logistics.
+- "quote" MUST be the patient's exact words from the transcript — it is the provenance citation stored with the update.
+- Never emit an update whose value equals the slot's current value; prefer sharpening a value over restating it.
+- Raise a slot to "known" only when the answer is unambiguous. Use "contradicted" when the patient reverses a prior statement (e.g. later claims aspirin adherence after admitting they stopped)."""
+
 WORKER_SYSTEM = {
     "contradictions": CONTRADICTIONS_SYSTEM,
     "suggestions": SUGGESTIONS_SYSTEM,
     "guardrails": GUARDRAILS_SYSTEM,
     "chart": CHART_SYSTEM,
     "todos": TODOS_SYSTEM,
+    "pcm": PCM_SYSTEM,
 }
 
 COMPILE_SYSTEM = """YOUR WORKER: END-OF-SESSION COMPILER
@@ -259,6 +285,23 @@ def dynamic_message(
         for t in todos
     ) or "(none)"
 
+    # Context slots — only shown to the accumulator group (the context integrator
+    # consumes them; chart/todos ignore them). Keeps the tuned urgent workers untouched.
+    slots_section = ""
+    if mode == "accumulator":
+        slot_rows = q(
+            "SELECT key, label, status, value FROM context_slots "
+            "WHERE visit_id=? AND required=1 ORDER BY category, key",
+            (vid,),
+        )
+        slot_lines = "\n".join(
+            f"- {s['key']} [{s['status']}] {s['label']}: {s['value'] or '(unknown)'}"
+            for s in slot_rows
+        ) or "(none)"
+        slots_section = (
+            f"\n== CONTEXT SLOTS (fixed keys; the context integrator fills these) ==\n{slot_lines}\n"
+        )
+
     shown_sug = q("SELECT text FROM suggestions WHERE session_id=? ORDER BY id", (sid,))
     shown_alerts = q(
         "SELECT g.num, a.triggered_by FROM guardrail_alerts a"
@@ -303,7 +346,7 @@ def dynamic_message(
 
 == CURRENT TODOS ==
 {todo_lines}
-
+{slots_section}
 == ALREADY SHOWN (do not repeat any of these) ==
 {chr(10).join(shown_lines)}
 

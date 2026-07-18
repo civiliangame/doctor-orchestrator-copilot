@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import voice
 from config import CLAUDE_API_KEY, SONIOX_API_KEY
 from db import init_db
-from routes import core, dev, images, sessions
+from routes import context, core, dev, images, sessions
 from seed import seed_all
 
 app = FastAPI(title="DOC backend")
@@ -47,4 +47,5 @@ app.include_router(core.router)
 app.include_router(sessions.router)
 app.include_router(dev.router)
 app.include_router(images.router)
+app.include_router(context.router)
 app.include_router(voice.router)
