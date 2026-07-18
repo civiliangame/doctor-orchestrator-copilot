@@ -1,0 +1,628 @@
+{
+ "dataset": "synthetic-ambient-fhir-25",
+ "synthetic": true,
+ "patients": [
+  {
+   "file": "01-ali-kuhic.md",
+   "record_id": "3a3a1f26-ed23-f65c-a7df-c96fac56f464::3a3a1f26-ed23-f65c-e264-be689558faea",
+   "patient_id": "3a3a1f26-ed23-f65c-a7df-c96fac56f464",
+   "encounter_id": "3a3a1f26-ed23-f65c-e264-be689558faea",
+   "name": "Ali Kuhic",
+   "gender": "male",
+   "birth_date": "1991-05-24",
+   "age_at_visit": 31,
+   "visit_date": "2022-08-05",
+   "visit_title": "Annual physical — preventive screening and migraine check-in",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Chronic intractable migraine without aura",
+    "Gingivitis"
+   ],
+   "medications": [],
+   "summary_text": "Ali Kuhic, 31-year-old man (DOB 1991-05-24), Chelsea, MA. Tobacco: never smoked tobacco. Problem list: Chronic intractable migraine without aura; Gingivitis. No current medications on record. Social context: Risk activity involvement; Received higher education; Transport problem; Lack of access to transportation; Stress; Social isolation.\n\nVisit 2022-08-05 (ambulatory at Whitley Wellness LLC): Annual physical — preventive screening and migraine check-in. Vitals: BP 98/83, HR 93, BMI 25.3. Recorded this visit: Full-time employment (resolved); Social isolation (active); Gingivitis (resolved)."
+  },
+  {
+   "file": "02-ariane-runolfsson.md",
+   "record_id": "7bd9e5b0-5d4b-f10d-9579-f4813faf9cdc::7bd9e5b0-5d4b-f10d-cb93-7fcf216727d8",
+   "patient_id": "7bd9e5b0-5d4b-f10d-9579-f4813faf9cdc",
+   "encounter_id": "7bd9e5b0-5d4b-f10d-cb93-7fcf216727d8",
+   "name": "Ariane Runolfsson",
+   "gender": "female",
+   "birth_date": "1940-05-16",
+   "age_at_visit": 80,
+   "visit_date": "2021-01-03",
+   "visit_title": "Inpatient admission — COVID-19 isolation with pneumonia and hypoxemia",
+   "visit_type": "Hospital admission for isolation (procedure)",
+   "encounter_class": "inpatient",
+   "problems": [
+    "Adolescent idiopathic scoliosis",
+    "Prediabetes",
+    "Body mass index 30+ - obesity",
+    "Essential hypertension",
+    "Osteoporosis",
+    "Acute ST segment elevation myocardial infarction",
+    "Metabolic syndrome X",
+    "Hyperlipidemia"
+   ],
+   "medications": [
+    "aspirin 81 MG Oral Tablet",
+    "atenolol 50 MG Oral Tablet",
+    "rosuvastatin calcium 40 MG Oral Tablet",
+    "lisinopril 20 MG Oral Tablet"
+   ],
+   "summary_text": "Ariane Runolfsson, 80-year-old woman (DOB 1940-05-16), Arlington, MA. Problem list: Adolescent idiopathic scoliosis; Prediabetes; Body mass index 30+ - obesity; Essential hypertension; Osteoporosis; Acute ST segment elevation myocardial infarction; Metabolic syndrome X; Hyperlipidemia. History: Past pregnancy history of miscarriage; History of tubal ligation; History of myocardial infarction. Current medications on record: aspirin 81 MG Oral Tablet; atenolol 50 MG Oral Tablet; rosuvastatin calcium 40 MG Oral Tablet; lisinopril 20 MG Oral Tablet. Social context: Educated to high school level.\n\nVisit 2021-01-03 (inpatient at First Psychiatric Planners, Inc): Inpatient admission — COVID-19 isolation with pneumonia and hypoxemia. Vitals: BP 108/53, HR 165.5, T 37.1 °C, SpO2 85.8 %. Recorded this visit: Pneumonia (resolved); Hypoxemia (resolved); Respiratory distress (resolved)."
+  },
+  {
+   "file": "03-clarence-reinger.md",
+   "record_id": "b342f27e-56bc-08ac-347c-323279c0d595::b342f27e-56bc-08ac-24f0-de401f6e3c47",
+   "patient_id": "b342f27e-56bc-08ac-347c-323279c0d595",
+   "encounter_id": "b342f27e-56bc-08ac-24f0-de401f6e3c47",
+   "name": "Clarence Reinger",
+   "gender": "female",
+   "birth_date": "1993-05-09",
+   "age_at_visit": 32,
+   "visit_date": "2025-06-01",
+   "visit_title": "Prenatal intake visit — initial obstetric evaluation",
+   "visit_type": "Prenatal initial visit (regime/therapy)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Recurrent urinary tract infection",
+    "Normal pregnancy"
+   ],
+   "medications": [],
+   "summary_text": "Clarence Reinger, 32-year-old woman (DOB 1993-05-09), Somerville, MA. Problem list: Recurrent urinary tract infection; Normal pregnancy. No current medications on record. Social context: Received higher education; Medication review due.\n\nVisit 2025-06-01 (ambulatory at Cambridge Public Health Commission): Prenatal intake visit — initial obstetric evaluation. Recorded this visit: Normal pregnancy (resolved)."
+  },
+  {
+   "file": "04-corinne-crooks.md",
+   "record_id": "6b716621-5454-68ec-2017-362939ab6f36::6b716621-5454-68ec-7553-080856a4cfa2",
+   "patient_id": "6b716621-5454-68ec-2017-362939ab6f36",
+   "encounter_id": "6b716621-5454-68ec-7553-080856a4cfa2",
+   "name": "Corinne Crooks",
+   "gender": "female",
+   "birth_date": "1970-12-13",
+   "age_at_visit": 46,
+   "visit_date": "2017-01-01",
+   "visit_title": "Annual wellness examination — preventive screening and health maintenance",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Chronic sinusitis",
+    "Body mass index 30+ - obesity"
+   ],
+   "medications": [],
+   "summary_text": "Corinne Crooks, 46-year-old woman (DOB 1970-12-13), East Sandwich, MA. Tobacco: ex-smoker. Problem list: Chronic sinusitis; Body mass index 30+ - obesity. History: History of tubal ligation. No current medications on record. Social context: Risk activity involvement; Received higher education; Medication review due; Not in labor force.\n\nVisit 2017-01-01 (ambulatory at Leap Into Wellness,LLC): Annual wellness examination — preventive screening and health maintenance. Vitals: BP 102/71, HR 70, BMI 28.1. Recorded this visit: Medication review due (resolved); Not in labor force (resolved)."
+  },
+  {
+   "file": "05-delana-gutkowski.md",
+   "record_id": "966e9818-9cf6-8d71-74bc-36aef6643618::966e9818-9cf6-8d71-3eff-a424a6faa0d3",
+   "patient_id": "966e9818-9cf6-8d71-74bc-36aef6643618",
+   "encounter_id": "966e9818-9cf6-8d71-3eff-a424a6faa0d3",
+   "name": "Delana Gutkowski",
+   "gender": "female",
+   "birth_date": "2003-03-21",
+   "age_at_visit": 22,
+   "visit_date": "2025-05-23",
+   "visit_title": "Young adult preventive exam — prediabetes and allergy follow-up",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Prediabetes",
+    "Body mass index 30+ - obesity",
+    "Gingivitis"
+   ],
+   "medications": [
+    "cetirizine hydrochloride 5 MG Oral Tablet",
+    "NDA020800 0.3 ML Epinephrine 1 MG/ML Auto-Injector"
+   ],
+   "summary_text": "Delana Gutkowski, 22-year-old woman (DOB 2003-03-21), Boston, MA. Tobacco: never smoked tobacco. Problem list: Prediabetes; Body mass index 30+ - obesity; Gingivitis. Current medications on record: cetirizine hydrochloride 5 MG Oral Tablet; NDA020800 0.3 ML Epinephrine 1 MG/ML Auto-Injector. Social context: Received higher education; Social isolation.\n\nVisit 2025-05-23 (ambulatory at Measured Wellness LLC): Young adult preventive exam — prediabetes and allergy follow-up. Vitals: BP 121/62, HR 90, BMI 31.4. Recorded this visit: Body mass index 30+ - obesity (active); Part-time employment (resolved); Social isolation (active); Gingivitis (resolved)."
+  },
+  {
+   "file": "06-dick-larson.md",
+   "record_id": "374e68b2-ee15-0852-cd48-3c7b6fd8e114::374e68b2-ee15-0852-8f80-26e1007e6c00",
+   "patient_id": "374e68b2-ee15-0852-cd48-3c7b6fd8e114",
+   "encounter_id": "374e68b2-ee15-0852-8f80-26e1007e6c00",
+   "name": "Dick Larson",
+   "gender": "male",
+   "birth_date": "1987-05-23",
+   "age_at_visit": 36,
+   "visit_date": "2024-05-18",
+   "visit_title": "Annual check-up — post-sepsis recovery and prediabetes",
+   "visit_type": "Encounter for check up (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Prediabetes",
+    "Body mass index 30+ - obesity",
+    "Sepsis",
+    "Septic shock",
+    "Acute respiratory distress syndrome",
+    "Anemia"
+   ],
+   "medications": [],
+   "summary_text": "Dick Larson, 36-year-old man (DOB 1987-05-23), Waltham, MA. Tobacco: never smoked tobacco. Problem list: Prediabetes; Body mass index 30+ - obesity; Sepsis; Septic shock; Acute respiratory distress syndrome; Anemia. No current medications on record. Social context: Housing unsatisfactory; Received higher education; Medication review due; Unemployed; Social isolation.\n\nVisit 2024-05-18 (ambulatory at Children's Hospital Corporation): Annual check-up — post-sepsis recovery and prediabetes. Vitals: BP 107/69, HR 63, BMI 30.3. Recorded this visit: Medication review due (resolved); Unemployed (active); Social isolation (resolved)."
+  },
+  {
+   "file": "07-elias-wisozk.md",
+   "record_id": "4b4735a2-ee12-ec86-041f-3ba4d5c81ec9::4b4735a2-ee12-ec86-c1c9-c610cc6ef8ab",
+   "patient_id": "4b4735a2-ee12-ec86-041f-3ba4d5c81ec9",
+   "encounter_id": "4b4735a2-ee12-ec86-c1c9-c610cc6ef8ab",
+   "name": "Elias Wisozk",
+   "gender": "male",
+   "birth_date": "1972-05-25",
+   "age_at_visit": 54,
+   "visit_date": "2026-06-18",
+   "visit_title": "General adult exam — new hypertension and metabolic syndrome",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Prediabetes",
+    "Anemia",
+    "Body mass index 30+ - obesity",
+    "Essential hypertension",
+    "Metabolic syndrome X",
+    "Gingivitis"
+   ],
+   "medications": [
+    "Vitamin B12 5 MG/ML Injectable Solution",
+    "Hydrochlorothiazide 25 MG Oral Tablet"
+   ],
+   "summary_text": "Elias Wisozk, 54-year-old man (DOB 1972-05-25), Lawrence, MA. Tobacco: never smoked tobacco. Problem list: Prediabetes; Anemia; Body mass index 30+ - obesity; Essential hypertension; Metabolic syndrome X; Gingivitis. Current medications on record: Vitamin B12 5 MG/ML Injectable Solution; Hydrochlorothiazide 25 MG Oral Tablet. Social context: Received higher education; Social isolation; Stress; Medication review due; Not in labor force.\n\nVisit 2026-06-18 (ambulatory at Greater Lawrence Family Health Center Inc): General adult exam — new hypertension and metabolic syndrome. Vitals: BP 141/100, HR 100, BMI 30.2. Recorded this visit: Essential hypertension (active); Medication review due (resolved); Metabolic syndrome X (active); Not in labor force (active); Gingivitis (resolved)."
+  },
+  {
+   "file": "08-emory-kovacek.md",
+   "record_id": "1ba8eeb9-bc93-7129-4390-0d2ddd560616::1ba8eeb9-bc93-7129-2e7d-8c427e72b964",
+   "patient_id": "1ba8eeb9-bc93-7129-4390-0d2ddd560616",
+   "encounter_id": "1ba8eeb9-bc93-7129-2e7d-8c427e72b964",
+   "name": "Emory Kovacek",
+   "gender": "male",
+   "birth_date": "1999-01-19",
+   "age_at_visit": 22,
+   "visit_date": "2021-04-06",
+   "visit_title": "General exam — chronic low back pain and positive depression screen",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Chronic pain",
+    "Chronic low back pain",
+    "Gingivitis"
+   ],
+   "medications": [
+    "Ibuprofen 400 MG Oral Tablet [Ibu]"
+   ],
+   "summary_text": "Emory Kovacek, 22-year-old man (DOB 1999-01-19), Westborough, MA. Tobacco: never smoked tobacco. Problem list: Chronic pain; Chronic low back pain; Gingivitis. History: History of appendectomy. Current medications on record: Ibuprofen 400 MG Oral Tablet [Ibu]. Social context: Received higher education; Stress.\n\nVisit 2021-04-06 (ambulatory at Sunrise Healthcare LLC): General exam — chronic low back pain and positive depression screen. Vitals: BP 136/94, HR 89, BMI 22.5. Recorded this visit: Full-time employment (resolved); Stress (resolved); Gingivitis (resolved)."
+  },
+  {
+   "file": "09-eva-casas.md",
+   "record_id": "73043f9e-3254-a1d3-aa45-b82f0fc6d502::73043f9e-3254-a1d3-ecbd-a0c16f2d8db0",
+   "patient_id": "73043f9e-3254-a1d3-aa45-b82f0fc6d502",
+   "encounter_id": "73043f9e-3254-a1d3-ecbd-a0c16f2d8db0",
+   "name": "Eva Casas",
+   "gender": "female",
+   "birth_date": "1954-06-22",
+   "age_at_visit": 62,
+   "visit_date": "2016-08-30",
+   "visit_title": "Annual general exam — prediabetes, hyperlipidemia, and knee osteoarthritis",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Body mass index 30+ - obesity",
+    "Prediabetes",
+    "Hyperlipidemia",
+    "Osteoarthritis of knee",
+    "Anemia"
+   ],
+   "medications": [
+    "Naproxen sodium 220 MG Oral Tablet"
+   ],
+   "summary_text": "Eva Casas, 62-year-old woman (DOB 1954-06-22), Westfield, MA. Tobacco: ex-smoker. Problem list: Body mass index 30+ - obesity; Prediabetes; Hyperlipidemia; Osteoarthritis of knee; Anemia. History: History of tubal ligation. Current medications on record: Naproxen sodium 220 MG Oral Tablet. Social context: Educated to high school level; Victim of intimate partner abuse; Refugee; Limited social contact; Social isolation; Stress.\n\nVisit 2016-08-30 (ambulatory at Primary Care Medicine And Pediatrics, LLC): Annual general exam — prediabetes, hyperlipidemia, and knee osteoarthritis. Vitals: BP 135/82, HR 60, BMI 27.7. Recorded this visit: Stress (resolved); Gingivitis (resolved)."
+  },
+  {
+   "file": "10-hiedi-thiel.md",
+   "record_id": "40cb7be2-9c26-6328-3aa0-71db4ed81e06::40cb7be2-9c26-6328-75bd-838e58c2583e",
+   "patient_id": "40cb7be2-9c26-6328-3aa0-71db4ed81e06",
+   "encounter_id": "40cb7be2-9c26-6328-75bd-838e58c2583e",
+   "name": "Hiedi Thiel",
+   "gender": "female",
+   "birth_date": "1993-07-26",
+   "age_at_visit": 30,
+   "visit_date": "2024-07-22",
+   "visit_title": "Prenatal intake visit — first trimester, newly identified anemia",
+   "visit_type": "Prenatal initial visit (regime/therapy)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Adolescent idiopathic scoliosis",
+    "Severe anxiety (panic)",
+    "Normal pregnancy",
+    "Anemia"
+   ],
+   "medications": [
+    "ferrous sulfate 325 MG Oral Tablet",
+    "Vitamin B12 5 MG/ML Injectable Solution"
+   ],
+   "summary_text": "Hiedi Thiel, 30-year-old woman (DOB 1993-07-26), Ludlow, MA. Problem list: Adolescent idiopathic scoliosis; Severe anxiety (panic); Normal pregnancy; Anemia. Current medications on record: ferrous sulfate 325 MG Oral Tablet; Vitamin B12 5 MG/ML Injectable Solution. Social context: Educated to high school level; Lack of access to transportation; Transport problem; Stress.\n\nVisit 2024-07-22 (ambulatory at Encompass Health Rehab Hospital Of Western Mass): Prenatal intake visit — first trimester, newly identified anemia. Recorded this visit: Normal pregnancy (resolved); Anemia (resolved)."
+  },
+  {
+   "file": "11-isreal-howell.md",
+   "record_id": "74919836-2db2-2f73-d2cf-5287a180b0ff::74919836-2db2-2f73-ed42-440eccc6591a",
+   "patient_id": "74919836-2db2-2f73-d2cf-5287a180b0ff",
+   "encounter_id": "74919836-2db2-2f73-ed42-440eccc6591a",
+   "name": "Isreal Howell",
+   "gender": "male",
+   "birth_date": "1939-03-20",
+   "age_at_visit": 85,
+   "visit_date": "2024-10-07",
+   "visit_title": "Annual physical — geriatric cardiometabolic follow-up",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Body mass index 30+ - obesity",
+    "Prediabetes",
+    "Anemia",
+    "Essential hypertension",
+    "Metabolic syndrome X",
+    "Ischemic heart disease",
+    "Abnormal findings diagnostic imaging heart+coronary circulat",
+    "Acute non-ST segment elevation myocardial infarction",
+    "Hyperlipidemia",
+    "Diabetes mellitus type 2"
+   ],
+   "medications": [
+    "Simvastatin 20 MG Oral Tablet",
+    "24 HR metoprolol succinate 100 MG Extended Release Oral Tablet",
+    "Nitroglycerin 0.4 MG/ACTUAT Mucosal Spray",
+    "aspirin 81 MG Oral Tablet",
+    "24 HR metoprolol succinate 50 MG Extended Release Oral Tablet",
+    "atorvastatin 20 MG Oral Tablet",
+    "losartan potassium 50 MG Oral Tablet",
+    "Hydrochlorothiazide 25 MG Oral Tablet",
+    "24 HR Metformin hydrochloride 500 MG Extended Release Oral Tablet"
+   ],
+   "summary_text": "Isreal Howell, 85-year-old man (DOB 1939-03-20), Shrewsbury, MA. Tobacco: ex-smoker. Problem list: Body mass index 30+ - obesity; Prediabetes; Anemia; Essential hypertension; Metabolic syndrome X; Ischemic heart disease; Abnormal findings diagnostic imaging heart+coronary circulat; Acute non-ST segment elevation myocardial infarction; Hyperlipidemia; Diabetes mellitus type 2. History: History of myocardial infarction. Current medications on record: Simvastatin 20 MG Oral Tablet; 24 HR metoprolol succinate 100 MG Extended Release Oral Tablet; Nitroglycerin 0.4 MG/ACTUAT Mucosal Spray; aspirin 81 MG Oral Tablet; 24 HR metoprolol succinate 50 MG Extended Release Oral Tablet; atorvastatin 20 MG Oral Tablet; losartan potassium 50 MG Oral Tablet; Hydrochlorothiazide 25 MG Oral Tablet; 24 HR Metformin hydrochloride 500 MG Extended Release Oral Tablet. Social context: Received higher education.\n\nVisit 2024-10-07 (ambulatory at Sunrise Healthcare LLC): Annual physical — geriatric cardiometabolic follow-up. Vitals: BP 107/58, HR 96, BMI 27.8. Recorded this visit: Not in labor force (resolved); Gingivitis (resolved)."
+  },
+  {
+   "file": "12-issac-mayer.md",
+   "record_id": "be1b73f7-b0f0-0ca3-b24b-28369ce68943::be1b73f7-b0f0-0ca3-5c23-d051118e002b",
+   "patient_id": "be1b73f7-b0f0-0ca3-b24b-28369ce68943",
+   "encounter_id": "be1b73f7-b0f0-0ca3-5c23-d051118e002b",
+   "name": "Issac Mayer",
+   "gender": "male",
+   "birth_date": "1988-05-01",
+   "age_at_visit": 31,
+   "visit_date": "2019-07-14",
+   "visit_title": "Annual physical — new adult patient wellness exam",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Body mass index 30+ - obesity"
+   ],
+   "medications": [],
+   "summary_text": "Issac Mayer, 31-year-old man (DOB 1988-05-01), Wilmington, MA. Tobacco: never smoked tobacco. Problem list: Body mass index 30+ - obesity. No current medications on record. Social context: Received higher education; Reports of violence in the environment; Medication review due.\n\nVisit 2019-07-14 (ambulatory at Clarity Health & Wellness LLC): Annual physical — new adult patient wellness exam. Vitals: BP 103/67, HR 69, BMI 31.4. Recorded this visit: Medication review due (resolved); Full-time employment (resolved)."
+  },
+  {
+   "file": "13-julius-renner.md",
+   "record_id": "6d4fd363-1ddb-74f8-516f-2fdc861cb736::6d4fd363-1ddb-74f8-95dd-b53404f1e107",
+   "patient_id": "6d4fd363-1ddb-74f8-516f-2fdc861cb736",
+   "encounter_id": "6d4fd363-1ddb-74f8-95dd-b53404f1e107",
+   "name": "Julius Renner",
+   "gender": "male",
+   "birth_date": "1989-12-17",
+   "age_at_visit": 35,
+   "visit_date": "2025-07-13",
+   "visit_title": "General exam — hypertension treatment initiation and chronic low back pain",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Body mass index 30+ - obesity",
+    "Chronic pain",
+    "Chronic low back pain",
+    "Essential hypertension",
+    "Gingivitis"
+   ],
+   "medications": [
+    "Hydrochlorothiazide 25 MG Oral Tablet",
+    "Acetaminophen 325 MG Oral Tablet [Tylenol]",
+    "lisinopril 10 MG Oral Tablet",
+    "amLODIPine 2.5 MG Oral Tablet"
+   ],
+   "summary_text": "Julius Renner, 35-year-old man (DOB 1989-12-17), Mansfield, MA. Tobacco: ex-smoker. Problem list: Body mass index 30+ - obesity; Chronic pain; Chronic low back pain; Essential hypertension; Gingivitis. Current medications on record: Hydrochlorothiazide 25 MG Oral Tablet; Acetaminophen 325 MG Oral Tablet [Tylenol]; lisinopril 10 MG Oral Tablet; amLODIPine 2.5 MG Oral Tablet. Social context: Housing unsatisfactory; Educated to high school level; Medication review due; Unemployed; Stress.\n\nVisit 2025-07-13 (ambulatory at Bl Healthcare Inc Deleware): General exam — hypertension treatment initiation and chronic low back pain. Vitals: BP 106/67, HR 86, BMI 29.3. Recorded this visit: Unemployed (active); Stress (active); Gingivitis (resolved)."
+  },
+  {
+   "file": "14-lala-casper.md",
+   "record_id": "256bea3d-7833-e7f8-74b4-0e4f7e299c73::256bea3d-7833-e7f8-1c5a-743d9ec18b07",
+   "patient_id": "256bea3d-7833-e7f8-74b4-0e4f7e299c73",
+   "encounter_id": "256bea3d-7833-e7f8-1c5a-743d9ec18b07",
+   "name": "Lala Casper",
+   "gender": "female",
+   "birth_date": "1972-05-24",
+   "age_at_visit": 48,
+   "visit_date": "2020-06-17",
+   "visit_title": "Annual exam — psychosocial screening with safety disclosure",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Recurrent urinary tract infection",
+    "Body mass index 30+ - obesity"
+   ],
+   "medications": [
+    "Hydrocortisone 10 MG/ML Topical Cream",
+    "Loratadine 10 MG Oral Tablet",
+    "NDA020800 0.3 ML Epinephrine 1 MG/ML Auto-Injector"
+   ],
+   "summary_text": "Lala Casper, 48-year-old woman (DOB 1972-05-24), Springfield, MA. Tobacco: never smoked tobacco. Problem list: Recurrent urinary tract infection; Body mass index 30+ - obesity. History: Past pregnancy history of miscarriage; History of tubal ligation. Current medications on record: Hydrocortisone 10 MG/ML Topical Cream; Loratadine 10 MG Oral Tablet; NDA020800 0.3 ML Epinephrine 1 MG/ML Auto-Injector. Social context: Risk activity involvement; Received higher education; Has a criminal record; Medication review due; Stress; Victim of intimate partner abuse.\n\nVisit 2020-06-17 (ambulatory at Caring Health Center, Inc): Annual exam — psychosocial screening with safety disclosure. Vitals: BP 108/77, HR 67, BMI 30.6. Recorded this visit: Medication review due (resolved); Full-time employment (resolved); Stress (resolved); Victim of intimate partner abuse (active)."
+  },
+  {
+   "file": "15-lamont-ernser.md",
+   "record_id": "4c893b3e-df6f-a2f0-5d03-98714cbad61a::4c893b3e-df6f-a2f0-3e2d-587d1263ccd4",
+   "patient_id": "4c893b3e-df6f-a2f0-5d03-98714cbad61a",
+   "encounter_id": "4c893b3e-df6f-a2f0-3e2d-587d1263ccd4",
+   "name": "Lamont Ernser",
+   "gender": "male",
+   "birth_date": "1971-05-08",
+   "age_at_visit": 52,
+   "visit_date": "2023-05-20",
+   "visit_title": "General adult exam — preventive screening and sleep review",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Body mass index 30+ - obesity",
+    "Gingivitis"
+   ],
+   "medications": [
+    "diphenhydrAMINE Hydrochloride 25 MG Oral Tablet"
+   ],
+   "summary_text": "Lamont Ernser, 52-year-old man (DOB 1971-05-08), New Bedford, MA. Tobacco: ex-smoker. Problem list: Body mass index 30+ - obesity; Gingivitis. Current medications on record: diphenhydrAMINE Hydrochloride 25 MG Oral Tablet. Social context: Educated to high school level; Social isolation; Limited social contact; Has a criminal record; Medication review due.\n\nVisit 2023-05-20 (ambulatory at Greater New Bedford Community Health Center Inc): General adult exam — preventive screening and sleep review. Vitals: BP 143/75, HR 75, BMI 30.1. Recorded this visit: Gingivitis (resolved)."
+  },
+  {
+   "file": "16-latoyia-wilkinson.md",
+   "record_id": "1be66dc9-cf0b-cb78-e88e-ada9a9a5405b::1be66dc9-cf0b-cb78-ee14-c92f2fe041a4",
+   "patient_id": "1be66dc9-cf0b-cb78-e88e-ada9a9a5405b",
+   "encounter_id": "1be66dc9-cf0b-cb78-ee14-c92f2fe041a4",
+   "name": "Latoyia Wilkinson",
+   "gender": "female",
+   "birth_date": "1944-11-15",
+   "age_at_visit": 75,
+   "visit_date": "2019-11-20",
+   "visit_title": "Skilled nursing facility admission after hospitalization",
+   "visit_type": "Hospital admission (procedure)",
+   "encounter_class": "inpatient",
+   "problems": [
+    "Prediabetes",
+    "Anemia",
+    "Essential hypertension",
+    "Diabetes mellitus type 2",
+    "Chronic kidney disease stage 1",
+    "Disorder of kidney due to diabetes mellitus",
+    "Hypertriglyceridemia",
+    "Metabolic syndrome X"
+   ],
+   "medications": [
+    "Vitamin B12 5 MG/ML Injectable Solution",
+    "Clopidogrel 75 MG Oral Tablet",
+    "Simvastatin 20 MG Oral Tablet",
+    "24 HR metoprolol succinate 100 MG Extended Release Oral Tablet",
+    "Nitroglycerin 0.4 MG/ACTUAT Mucosal Spray"
+   ],
+   "summary_text": "Latoyia Wilkinson, 75-year-old woman (DOB 1944-11-15), Boston, MA. Problem list: Prediabetes; Anemia; Essential hypertension; Diabetes mellitus type 2; Chronic kidney disease stage 1; Disorder of kidney due to diabetes mellitus; Hypertriglyceridemia; Metabolic syndrome X. History: Past pregnancy history of miscarriage; History of tubal ligation. Current medications on record: Vitamin B12 5 MG/ML Injectable Solution; Clopidogrel 75 MG Oral Tablet; Simvastatin 20 MG Oral Tablet; 24 HR metoprolol succinate 100 MG Extended Release Oral Tablet; Nitroglycerin 0.4 MG/ACTUAT Mucosal Spray. Social context: Received higher education; Has a criminal record.\n\nVisit 2019-11-20 (inpatient at Marian Manor): Skilled nursing facility admission after hospitalization."
+  },
+  {
+   "file": "17-margarita-rau.md",
+   "record_id": "c2cbc55e-34dc-73c6-5ee4-cabe0c40fc32::c2cbc55e-34dc-73c6-4d09-7d9c99b11de4",
+   "patient_id": "c2cbc55e-34dc-73c6-5ee4-cabe0c40fc32",
+   "encounter_id": "c2cbc55e-34dc-73c6-4d09-7d9c99b11de4",
+   "name": "Margarita Rau",
+   "gender": "female",
+   "birth_date": "1976-08-20",
+   "age_at_visit": 43,
+   "visit_date": "2019-09-27",
+   "visit_title": "Initial prenatal visit — new pregnancy at 43",
+   "visit_type": "Prenatal initial visit (regime/therapy)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Prediabetes",
+    "Anemia",
+    "Body mass index 30+ - obesity",
+    "Essential hypertension",
+    "Metabolic syndrome X",
+    "Normal pregnancy"
+   ],
+   "medications": [],
+   "summary_text": "Margarita Rau, 43-year-old woman (DOB 1976-08-20), Beverly, MA. Problem list: Prediabetes; Anemia; Body mass index 30+ - obesity; Essential hypertension; Metabolic syndrome X; Normal pregnancy. History: Past pregnancy history of miscarriage. No current medications on record. Social context: Educated to high school level; Victim of intimate partner abuse.\n\nVisit 2019-09-27 (ambulatory at Lahey Hospital & Medical Center, Burlington): Initial prenatal visit — new pregnancy at 43. Recorded this visit: Normal pregnancy (resolved)."
+  },
+  {
+   "file": "18-marty-toy.md",
+   "record_id": "e1a7c2af-1e7f-300b-44f6-012ae75bbab1::e1a7c2af-1e7f-300b-bc8f-6bb66fcf2ddc",
+   "patient_id": "e1a7c2af-1e7f-300b-44f6-012ae75bbab1",
+   "encounter_id": "e1a7c2af-1e7f-300b-bc8f-6bb66fcf2ddc",
+   "name": "Marty Toy",
+   "gender": "male",
+   "birth_date": "1990-12-10",
+   "age_at_visit": 34,
+   "visit_date": "2025-03-10",
+   "visit_title": "Dental referral visit — gingival disease treatment",
+   "visit_type": "Encounter for check up (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Body mass index 30+ - obesity",
+    "Gingival disease"
+   ],
+   "medications": [],
+   "summary_text": "Marty Toy, 34-year-old man (DOB 1990-12-10), Whitman, MA. Problem list: Body mass index 30+ - obesity; Gingival disease. No current medications on record. Social context: Risk activity involvement; Serving in military service; Educated to high school level; Medication review due.\n\nVisit 2025-03-10 (ambulatory at South Shore Hospital Inc.): Dental referral visit — gingival disease treatment. Recorded this visit: Gingival disease (resolved)."
+  },
+  {
+   "file": "19-melodee-satterfield.md",
+   "record_id": "a3292ec4-64b6-20fc-480e-39e1f7f51e50::a3292ec4-64b6-20fc-55a4-b753a07a1881",
+   "patient_id": "a3292ec4-64b6-20fc-480e-39e1f7f51e50",
+   "encounter_id": "a3292ec4-64b6-20fc-55a4-b753a07a1881",
+   "name": "Melodee Satterfield",
+   "gender": "female",
+   "birth_date": "2005-10-22",
+   "age_at_visit": 20,
+   "visit_date": "2026-03-21",
+   "visit_title": "Prenatal intake visit — first pregnancy with chronic pain",
+   "visit_type": "Prenatal initial visit (regime/therapy)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Chronic pain",
+    "Chronic low back pain",
+    "Chronic neck pain",
+    "Normal pregnancy"
+   ],
+   "medications": [
+    "Acetaminophen 300 MG / Hydrocodone Bitartrate 5 MG Oral Tablet",
+    "tramadol hydrochloride 50 MG Oral Tablet"
+   ],
+   "summary_text": "Melodee Satterfield, 20-year-old woman (DOB 2005-10-22), Acton, MA. Problem list: Chronic pain; Chronic low back pain; Chronic neck pain; Normal pregnancy. Current medications on record: Acetaminophen 300 MG / Hydrocodone Bitartrate 5 MG Oral Tablet; tramadol hydrochloride 50 MG Oral Tablet. Social context: Risk activity involvement; Received higher education; Not in labor force; Stress.\n\nVisit 2026-03-21 (ambulatory at The Lowell General Hospital): Prenatal intake visit — first pregnancy with chronic pain. Recorded this visit: Normal pregnancy (active)."
+  },
+  {
+   "file": "20-monica-hilpert.md",
+   "record_id": "b504cdf2-e13b-979e-9c4a-95456823e3dd::b504cdf2-e13b-979e-4f0c-523d0948189e",
+   "patient_id": "b504cdf2-e13b-979e-9c4a-95456823e3dd",
+   "encounter_id": "b504cdf2-e13b-979e-4f0c-523d0948189e",
+   "name": "Monica Hilpert",
+   "gender": "female",
+   "birth_date": "1947-11-02",
+   "age_at_visit": 76,
+   "visit_date": "2023-11-27",
+   "visit_title": "SNF admission — rehabilitation and pain management",
+   "visit_type": "Hospital admission (procedure)",
+   "encounter_class": "inpatient",
+   "problems": [
+    "Loss of teeth",
+    "Body mass index 30+ - obesity",
+    "Prediabetes",
+    "Hyperlipidemia",
+    "Osteoporosis"
+   ],
+   "medications": [
+    "Meperidine Hydrochloride 50 MG Oral Tablet",
+    "Naproxen sodium 220 MG Oral Tablet"
+   ],
+   "summary_text": "Monica Hilpert, 76-year-old woman (DOB 1947-11-02), Somerville, MA. Problem list: Loss of teeth; Body mass index 30+ - obesity; Prediabetes; Hyperlipidemia; Osteoporosis. History: Past pregnancy history of miscarriage. Current medications on record: Meperidine Hydrochloride 50 MG Oral Tablet; Naproxen sodium 220 MG Oral Tablet. Social context: Educated to high school level; Has a criminal record; Victim of intimate partner abuse; Social isolation; Not in labor force; Limited social contact.\n\nVisit 2023-11-27 (inpatient at Courtyard Nursing Care Center): SNF admission — rehabilitation and pain management."
+  },
+  {
+   "file": "21-nigel-ankunding.md",
+   "record_id": "d57244c4-df7d-9ce7-7878-38361fc0087b::d57244c4-df7d-9ce7-c30b-92c6cf8c0859",
+   "patient_id": "d57244c4-df7d-9ce7-7878-38361fc0087b",
+   "encounter_id": "d57244c4-df7d-9ce7-c30b-92c6cf8c0859",
+   "name": "Nigel Ankunding",
+   "gender": "male",
+   "birth_date": "1967-04-10",
+   "age_at_visit": 52,
+   "visit_date": "2019-04-22",
+   "visit_title": "Annual physical — prediabetes and psychosocial screening",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Chronic sinusitis",
+    "Prediabetes"
+   ],
+   "medications": [],
+   "summary_text": "Nigel Ankunding, 52-year-old man (DOB 1967-04-10), Plymouth, MA. Tobacco: never smoked tobacco. Problem list: Chronic sinusitis; Prediabetes. No current medications on record. Social context: Educated to high school level; Has a criminal record; Medication review due; Social isolation; Stress.\n\nVisit 2019-04-22 (ambulatory at Plymouth Carver Primary Care, P.C.): Annual physical — prediabetes and psychosocial screening. Vitals: BP 111/71, HR 88, BMI 28. Recorded this visit: Medication review due (resolved); Full-time employment (resolved); Social isolation (resolved); Stress (resolved)."
+  },
+  {
+   "file": "22-nola-kling.md",
+   "record_id": "25fb1227-d194-b15e-e099-7cffcd6081ec::25fb1227-d194-b15e-ecd8-6fcb9efd8141",
+   "patient_id": "25fb1227-d194-b15e-e099-7cffcd6081ec",
+   "encounter_id": "25fb1227-d194-b15e-ecd8-6fcb9efd8141",
+   "name": "Nola Kling",
+   "gender": "female",
+   "birth_date": "1947-05-14",
+   "age_at_visit": 75,
+   "visit_date": "2022-05-18",
+   "visit_title": "Hospice admission — end-stage colon cancer",
+   "visit_type": "Admission to hospice (procedure)",
+   "encounter_class": "home health",
+   "problems": [
+    "Body mass index 30+ - obesity",
+    "Prediabetes",
+    "Anemia",
+    "Hyperlipidemia",
+    "Chronic pain",
+    "Chronic low back pain",
+    "Polyp of colon",
+    "Recurrent rectal polyp"
+   ],
+   "medications": [],
+   "summary_text": "Nola Kling, 75-year-old woman (DOB 1947-05-14), Weymouth, MA. Problem list: Body mass index 30+ - obesity; Prediabetes; Anemia; Hyperlipidemia; Chronic pain; Chronic low back pain; Polyp of colon; Recurrent rectal polyp. History: Past pregnancy history of miscarriage; History of tubal ligation. No current medications on record. Social context: Received higher education; Victim of intimate partner abuse.\n\nVisit 2022-05-18 (home health at New England Hospice II LLC): Hospice admission — end-stage colon cancer."
+  },
+  {
+   "file": "23-solomon-macejkovic.md",
+   "record_id": "693a049b-0fd5-c1af-a6ab-e31c329f2891::693a049b-0fd5-c1af-8dff-09e595625529",
+   "patient_id": "693a049b-0fd5-c1af-a6ab-e31c329f2891",
+   "encounter_id": "693a049b-0fd5-c1af-8dff-09e595625529",
+   "name": "Solomon Macejkovic",
+   "gender": "male",
+   "birth_date": "1945-01-06",
+   "age_at_visit": 75,
+   "visit_date": "2020-01-11",
+   "visit_title": "Hospice admission — advanced colon cancer with cardiac comorbidity",
+   "visit_type": "Admission to hospice (procedure)",
+   "encounter_class": "home health",
+   "problems": [
+    "Body mass index 30+ - obesity",
+    "Prediabetes",
+    "Anemia",
+    "Ischemic heart disease",
+    "Abnormal findings diagnostic imaging heart+coronary circulat",
+    "Hyperlipidemia",
+    "Polyp of colon",
+    "Chronic sinusitis"
+   ],
+   "medications": [
+    "Clopidogrel 75 MG Oral Tablet",
+    "Simvastatin 20 MG Oral Tablet",
+    "24 HR metoprolol succinate 100 MG Extended Release Oral Tablet",
+    "Nitroglycerin 0.4 MG/ACTUAT Mucosal Spray"
+   ],
+   "summary_text": "Solomon Macejkovic, 75-year-old man (DOB 1945-01-06), Boston, MA. Problem list: Body mass index 30+ - obesity; Prediabetes; Anemia; Ischemic heart disease; Abnormal findings diagnostic imaging heart+coronary circulat; Hyperlipidemia; Polyp of colon; Chronic sinusitis. Current medications on record: Clopidogrel 75 MG Oral Tablet; Simvastatin 20 MG Oral Tablet; 24 HR metoprolol succinate 100 MG Extended Release Oral Tablet; Nitroglycerin 0.4 MG/ACTUAT Mucosal Spray. Social context: Received higher education; Limited social contact; Social isolation.\n\nVisit 2020-01-11 (home health at West River Hospice, LLC): Hospice admission — advanced colon cancer with cardiac comorbidity."
+  },
+  {
+   "file": "24-traci-wiegand.md",
+   "record_id": "5e93dd7e-1639-0886-8d0e-80ac11f2785c::5e93dd7e-1639-0886-70ab-27e7ee37e5a0",
+   "patient_id": "5e93dd7e-1639-0886-8d0e-80ac11f2785c",
+   "encounter_id": "5e93dd7e-1639-0886-70ab-27e7ee37e5a0",
+   "name": "Traci Wiegand",
+   "gender": "female",
+   "birth_date": "1956-10-12",
+   "age_at_visit": 65,
+   "visit_date": "2021-10-15",
+   "visit_title": "Skilled nursing facility admission — diabetes stabilization and rehabilitation",
+   "visit_type": "Hospital admission (procedure)",
+   "encounter_class": "inpatient",
+   "problems": [
+    "Prediabetes",
+    "Anemia",
+    "Body mass index 30+ - obesity",
+    "Diabetes mellitus type 2",
+    "Hyperglycemia",
+    "Hypertriglyceridemia",
+    "Metabolic syndrome X",
+    "Chronic sinusitis"
+   ],
+   "medications": [],
+   "summary_text": "Traci Wiegand, 65-year-old woman (DOB 1956-10-12), Lowell, MA. Problem list: Prediabetes; Anemia; Body mass index 30+ - obesity; Diabetes mellitus type 2; Hyperglycemia; Hypertriglyceridemia; Metabolic syndrome X; Chronic sinusitis. History: Past pregnancy history of miscarriage. No current medications on record. Social context: Received higher education; Medication review due; Stress.\n\nVisit 2021-10-15 (inpatient at Sunny Acres Nursing Home, Inc.): Skilled nursing facility admission — diabetes stabilization and rehabilitation."
+  },
+  {
+   "file": "25-van-o-reilly.md",
+   "record_id": "01573895-dbf5-29c6-4ef9-cd09aecc51f6::01573895-dbf5-29c6-f885-ade2bd6537a5",
+   "patient_id": "01573895-dbf5-29c6-4ef9-cd09aecc51f6",
+   "encounter_id": "01573895-dbf5-29c6-f885-ade2bd6537a5",
+   "name": "Van O'Reilly",
+   "gender": "male",
+   "birth_date": "1977-07-14",
+   "age_at_visit": 42,
+   "visit_date": "2019-07-25",
+   "visit_title": "Annual physical — hand osteoarthritis and anxiety screening",
+   "visit_type": "General examination of patient (procedure)",
+   "encounter_class": "ambulatory",
+   "problems": [
+    "Localized, primary osteoarthritis of the hand",
+    "Body mass index 30+ - obesity"
+   ],
+   "medications": [
+    "Naproxen sodium 220 MG Oral Tablet"
+   ],
+   "summary_text": "Van O'Reilly, 42-year-old man (DOB 1977-07-14), Everett, MA. Tobacco: never smoked tobacco. Problem list: Localized, primary osteoarthritis of the hand; Body mass index 30+ - obesity. Current medications on record: Naproxen sodium 220 MG Oral Tablet. Social context: Educated to high school level; Medication review due; Stress.\n\nVisit 2019-07-25 (ambulatory at Melrose Internal Medicine Assoc PC): Annual physical — hand osteoarthritis and anxiety screening. Vitals: BP 102/78, HR 74, BMI 28. Recorded this visit: Medication review due (resolved); Stress (resolved)."
+  }
+ ]
+}
