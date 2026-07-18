@@ -282,6 +282,7 @@ def _attribute_turn(session_id: int, quote: str) -> dict | None:
 async def _handle_pcm(ctx: dict, out: dict) -> None:
     from orchestrator import pcm
     sid, vid = ctx["session"]["id"], ctx["visit"]["id"]
+    pid = ctx["patient"]["id"]
     model = WORKER_SPECS["pcm"][0]
     for item in out.get("slot_updates") or []:
         key = (item.get("key") or "").strip()
@@ -298,18 +299,19 @@ async def _handle_pcm(ctx: dict, out: dict) -> None:
         if turn is not None:
             prov = pcm.turn_provenance(turn, ctx, model=model)
         else:  # no transcript to cite — attribute to the integrator itself
-            prov = {"source_kind": "inferred", "actor_role": "system",
+            prov = {"source_kind": "inferred", "source_ref": "agent:pcm-integrator",
+                    "actor_role": "system",
                     "actor_id": "doc", "actor_name": "DOC integrator",
                     "from_patient": False, "extracted_from_speech": False,
                     "model": model, "session_id": sid, "node_id": ctx["node"]["id"]}
         slot = pcm.record_contribution(
-            vid, key, value, status, confidence,
+            pid, key, value, status, confidence, visit_id=vid,
             raw_quote=quote or (turn["text"] if turn else ""), **prov,
         )
         if slot is None:
             continue  # no-op (unchanged) or unknown key — ledger already has the audit row
         await events.broadcast(sid, "context.slot_updated", {
-            "slot": pcm.slot_shape(slot),
+            "slot": pcm.slot_shape_for_visit(slot, vid),
             "completeness": pcm.completeness(vid),
         })
 

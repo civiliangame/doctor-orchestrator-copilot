@@ -26,7 +26,8 @@ const STATUS_META: Record<SlotStatus, { label: string; cls: string }> = {
 const STATUS_ORDER: SlotStatus[] = ["contradicted", "missing", "stale", "uncertain", "known"];
 
 const SOURCE_LABEL: Record<string, string> = {
-  seed: "prior record",
+  fhir: "FHIR record",
+  seed: "prior note",
   speech: "live speech",
   typed: "typed",
   image: "imaging",
@@ -174,6 +175,7 @@ export function ContextPanel({
                         {SOURCE_LABEL[h.source_kind] ?? h.source_kind}
                         {h.model ? ` · ${h.model}` : ""}
                       </span>
+                      {h.source_ref && <code className="hist-ref">{h.source_ref}</code>}
                     </div>
                   ))}
                 </div>

@@ -75,8 +75,65 @@ patient-attributed, quoted ledger entry.
 *Not yet exercised live:* the actual Haiku extraction call (needs `CLAUDE_API_KEY`). The `pcm`
 worker is wired identically to the existing five, so it runs whenever a key is present.
 
+## Phase 1.5 — the source-grounded PCM
+
+Phase 1 proved the belief state but left it disconnected from its richest source: the PCM
+was visit-scoped, seeded from hand-written facts, and the per-patient markdown files were a
+*parallel* FHIR extraction with only document-level provenance. Phase 1.5 makes the PCM the
+**canonical running summary of the patient's status across all sources**, with every fact
+referencing its exact origin:
+
+1. **Patient scoping.** `context_slots` is now `UNIQUE(patient_id, key)` — the running
+   status survives across visits. Per-visit requiredness moved to
+   `visit_slot_requirements(visit_id, slot_key, why_required)`; `derive_required_slots`
+   writes that layer and completeness is computed over it (Maria's 52% → 68% flow is
+   unchanged). Pre-existing DBs self-migrate (`db._migrate` drops the derived v1 tables;
+   `seed_all` re-derives on startup).
+
+2. **Typed `source_ref` on every ledger row.** The exact origin of every belief:
+   `fhir:<record_id>#<ResourceType>/<id>[,...]` · `fhir:<record_id>#longitudinal` ·
+   `turn:<turn_id>` · `note:<date>:<author>` · `file:<md_file>` · `agent:<name>`. Maria's
+   seeds are now just another source (`note:2026-07-11:dr-zhang`); turn contributions pin
+   `turn:<id>`; the markdown chart bridge's file reader cites `file:<md_file>`.
+
+3. **FHIR ingestion through the one write path.** `backend/fhir_ingest.py` folds a dataset
+   record into the PCM via `pcm.record_contribution` — one contribution per fact (problems,
+   history, meds, social, vitals, labs, assessments, procedures, imaging, reports, orders,
+   immunizations, the encounter itself), each citing its exact FHIR resource id(s).
+   Idempotent: a fact already asserted from the same source is never re-written. When the
+   dataset is present at the repo root, startup ingests all 25 synthetic patients.
+
+4. **Markdown context files are projections of the PCM, not a parallel pipeline.**
+   `backend/context_render.py` renders a patient's belief state as markdown — every line
+   footnoted with the ledger entry justifying it (source_ref, actor, quote). The seed corpus
+   in `backend/seed/patients/` is built that way (`scripts/build_patient_contexts.py`,
+   throwaway DB, deterministic — regenerating twice is byte-identical), and the same
+   renderer serves the live document at `GET /api/patients/{id}/context.md`, where
+   scribe-conversation lines appear next to FHIR-derived ones.
+
+5. **Vocabulary discipline.** Deterministic sources (FHIR ingest, seeds, derivation) may
+   create slots (`record_contribution(..., label=...)`); the LLM integrator can only fill
+   existing ones — an unknown key still writes its audit ledger row but materializes no slot.
+
+New/changed surface: `GET /api/patients/{id}/context` (running status, all sources) and
+`GET /api/patients/{id}/context.md` (rendered projection); `ContextLedgerEntry.source_ref`
+in the event/REST shapes; ledger history rows in the ContextPanel show the ref.
+
+### Verified (Phase 1.5)
+
+- Seed → 26 patients (Maria + 25 roster), Maria 6 slots / 6 requirements, 52% / 4 gaps;
+  seed rows carry `note:` refs. Stubbed worker pass over a real injected turn →
+  `turn:<id>` refs, `from_patient`, honest `typed`, 68% / 3 gaps.
+- FHIR: Ali Kuhic 37 slots, BP `98/83 mmHg` citing its exact `Observation/<id>`;
+  re-ingest and `seed_all` re-runs are ledger no-ops; unknown LLM keys create no slot
+  (audit row only).
+- HTTP: visit view decorated with required/why; patient JSON + markdown views; 404s.
+- v1→v2 migration drops/rebuilds derived tables, preserves `patients`, adds columns.
+- Corpus build is deterministic (two runs byte-identical); `tsc -b && vite build` clean.
+
 ## Next (Phase 2+, per the architecture)
 
 Gap Critic (diff the PCM against required slots on a slower cadence) → Acquisition Router
 (measurement vs live clinician question vs async intake) → the patient-facing **intake
-agent** feeding the same integrator through the existing `inject-turn` seam.
+agent** feeding the same integrator through the existing `inject-turn` seam — its
+contributions land with `agent:` source_refs through the same ledger.

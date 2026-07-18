@@ -8,11 +8,13 @@ READ  (markdown -> PCM): `sync_from_markdown(visit_id)` hashes the file's
   appends never re-trigger a read). When the content changed since the last sync,
   an LLM pass extracts what the chart establishes into slot contributions — each
   written through pcm.record_contribution with source_kind='seed',
-  source_channel='chart_md', quoting the file verbatim. Called at session start
-  and at the top of every accumulator pass, so external edits fold in mid-session.
+  source_channel='chart_md', source_ref='file:<md_file>', quoting the file
+  verbatim. Called at session start and at the top of every accumulator pass, so
+  external edits fold in mid-session.
 
 WRITE (PCM -> markdown): `append_update()` is invoked by pcm.record_contribution
-  for every non-seed contribution, appending one provenance line under the
+  for every LIVE contribution (speech/typed/image/measurement/inferred — not
+  fhir/seed, which came from the record), appending one provenance line under the
   '## Visit updates — DOC copilot' section. Append-only: the authored part of the
   file is never rewritten (same discipline as chart_entries).
 """
@@ -40,8 +42,8 @@ _INGEST_STATUS = ("known", "uncertain", "stale")
 _CATEGORIES = ("symptom", "vital", "medication", "risk", "history", "logistics")
 _KEY_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)*$")
 
-# Provenance actor for everything ingested FROM the file. source_kind='seed' also
-# tells record_contribution not to write it back (it is already in the file).
+# Provenance actor for everything ingested FROM the file. source_kind='seed' is a
+# non-live kind, so record_contribution never mirrors it back into the file.
 FILE_ACTOR = {
     "source_kind": "seed", "source_channel": "chart_md", "actor_role": "system",
     "actor_id": "chart_md", "actor_name": "Patient chart file",
@@ -183,8 +185,8 @@ Output schema (one JSON object, nothing else):
 
 async def _extract_slots(visit: dict, patient: dict, file_text: str) -> list[dict]:
     slot_rows = q(
-        "SELECT key, label, status, value FROM context_slots WHERE visit_id=? ORDER BY category, key",
-        (visit["id"],),
+        "SELECT key, label, status, value FROM context_slots WHERE patient_id=? ORDER BY category, key",
+        (patient["id"],),
     )
     slot_lines = "\n".join(
         f"- {s['key']} [{s['status']}] {s['label']}: {s['value'] or '(unknown)'}"
@@ -205,9 +207,10 @@ Doctor's intent: {visit['intent_text'] or '(none written yet)'}
     return out.get("slot_updates") or []
 
 
-def _apply_ingest(visit_id: int, items: list[dict]) -> list[dict]:
-    """Write extracted facts through the PCM's single write path. Returns the
-    changed slot rows (no-ops and rejects are dropped)."""
+def _apply_ingest(visit: dict, patient: dict, items: list[dict]) -> list[dict]:
+    """Write extracted facts through the PCM's single write path (patient-scoped,
+    source_ref = the chart file). A why_required marks the slot as required for
+    THIS visit. Returns the changed slot rows (no-ops and rejects are dropped)."""
     from orchestrator import pcm
     changed = []
     for item in items[:MAX_INGEST_SLOTS]:
@@ -222,13 +225,15 @@ def _apply_ingest(visit_id: int, items: list[dict]) -> list[dict]:
             confidence = 0.5
         label = (item.get("label") or "").strip() or key.replace(".", " ").replace("_", " ")
         category = item.get("category") if item.get("category") in _CATEGORIES else "history"
-        pcm.ensure_slot(
-            visit_id, key, label, category,
-            why_required=(item.get("why_required") or "").strip() or "Established by the patient chart file",
-        )
         slot = pcm.record_contribution(
-            visit_id, key, value, status, confidence,
+            patient["id"], key, value, status, confidence,
+            visit_id=visit["id"], label=label, category=category,
+            source_ref=f"file:{patient['md_file']}",
             raw_quote=(item.get("quote") or "").strip(), **FILE_ACTOR,
+        )
+        pcm.add_requirement(
+            visit["id"], key,
+            (item.get("why_required") or "").strip() or "Established by the patient chart file",
         )
         if slot is not None:
             changed.append(slot)
@@ -251,16 +256,17 @@ async def sync_from_markdown(visit_id: int, session_id: int | None = None,
         if state and state["content_hash"] == h and not force:
             return False
         items = await _extract_slots(visit, patient, external)
-        changed = _apply_ingest(visit_id, items)
+        changed = _apply_ingest(visit, patient, items)
         _upsert_state(visit_id, str(path), content_hash=h, synced=True)
     log.info("chart_md ingest: %s -> visit %s (%d extracted, %d applied)",
              patient["md_file"], visit_id, len(items), len(changed))
     if session_id is not None and changed:
         from orchestrator import pcm
         completeness = pcm.completeness(visit_id)
+        req = pcm.requirements_for(visit_id)
         for slot in changed:
             await events.broadcast(session_id, "context.slot_updated", {
-                "slot": pcm.slot_shape(slot), "completeness": completeness,
+                "slot": pcm.slot_shape(slot, req, visit_id), "completeness": completeness,
             })
     return True
 

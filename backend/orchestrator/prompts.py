@@ -290,9 +290,10 @@ def dynamic_message(
     slots_section = ""
     if mode == "accumulator":
         slot_rows = q(
-            "SELECT key, label, status, value FROM context_slots "
-            "WHERE visit_id=? AND required=1 ORDER BY category, key",
-            (vid,),
+            "SELECT s.key, s.label, s.status, s.value FROM visit_slot_requirements r "
+            "JOIN context_slots s ON s.patient_id=? AND s.key=r.slot_key "
+            "WHERE r.visit_id=? ORDER BY s.category, s.key",
+            (visit["patient_id"], vid),
         )
         slot_lines = "\n".join(
             f"- {s['key']} [{s['status']}] {s['label']}: {s['value'] or '(unknown)'}"

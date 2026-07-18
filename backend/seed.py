@@ -10,9 +10,12 @@ plan/confirm overwrites them.
 """
 
 import json
+import logging
 
 from config import PATIENTS_DIR
 from db import ex, ins, now_iso, one
+
+log = logging.getLogger("doc.seed")
 
 # Hand-written patient summary — used VERBATIM as the orchestrator prompt block.
 MARIA_SUMMARY = """Maria Alvarez, 58. Hypertension x6 years, controlled on lisinopril 10 mg daily. \
@@ -47,7 +50,9 @@ def seed_all() -> None:
         # Databases seeded before the markdown chart bridge: link Maria to her file.
         ex("UPDATE patients SET md_file=? WHERE name='Maria Alvarez' AND md_file=''",
            (chart_md.DEMO_MD_FILE,))
+        _ensure_pcm()  # top up derived PCM state after the v1→v2 migration
     seed_dataset_patients()
+    _ingest_fhir_roster()
     chart_md.ensure_demo_patient_file()
 
 
@@ -133,7 +138,8 @@ def _seed_maria() -> None:
         created_ts=ts)
 
     # Patient Context Model: derive the slots this visit needs from the guardrails +
-    # goals just seeded, then fill what the record already establishes (with provenance).
+    # goals just seeded, then fill what the prior note already establishes (each a
+    # provenance-tagged contribution through the one write path).
     from orchestrator import pcm
     pcm.derive_required_slots(visit_id)
     pcm.seed_context(visit_id)
@@ -141,20 +147,32 @@ def _seed_maria() -> None:
 
 def seed_dataset_patients() -> None:
     """One patient + visit + minimal nurse->doctor journey per entry in
-    seed/patients/index.json. Idempotent per patient (keyed on md_file), so new
-    dataset files are picked up on restart without reseeding. The PCM for these
-    visits is NOT seeded here — chart_md.sync_from_markdown ingests each patient's
-    markdown file (LLM extraction) when their first session starts."""
+    seed/patients/index.json. Idempotent per patient (keyed on md_file or FHIR
+    patient id), so new dataset files are picked up on restart without reseeding.
+    The PCM for these patients is filled two ways, both through the same write
+    path: deterministic FHIR ingestion at startup when the dataset is present
+    (exact per-resource source_refs), and chart_md.sync_from_markdown, which
+    LLM-ingests each patient's markdown file when their first session starts /
+    the file changes on disk."""
     index_path = PATIENTS_DIR / "index.json"
     if not index_path.exists():
         return
     roster = json.loads(index_path.read_text(encoding="utf-8")).get("patients", [])
     for i, p in enumerate(roster):
-        if one("SELECT id FROM patients WHERE md_file=?", (p["file"],)):
+        fhir_id = p.get("patient_id", "")
+        existing = one(
+            "SELECT * FROM patients WHERE md_file=? OR (fhir_patient_id!='' AND fhir_patient_id=?)",
+            (p["file"], fhir_id))
+        if existing:
+            # Backfill links on rows created by an older seed or by the FHIR ingester.
+            if not existing["md_file"]:
+                ex("UPDATE patients SET md_file=? WHERE id=?", (p["file"], existing["id"]))
+            if not existing["fhir_patient_id"] and fhir_id:
+                ex("UPDATE patients SET fhir_patient_id=? WHERE id=?", (fhir_id, existing["id"]))
             continue
         patient_id = ins(
             "patients", name=p["name"], dob=p["birth_date"],
-            summary_text=p["summary_text"], md_file=p["file"],
+            summary_text=p["summary_text"], md_file=p["file"], fhir_patient_id=fhir_id,
         )
         visit_id = ins(
             "visits", patient_id=patient_id, date=p["visit_date"],
@@ -183,3 +201,25 @@ def seed_dataset_patients() -> None:
             status="pending", position=2, sched_time="",
         )
         ins("journey_edges", visit_id=visit_id, from_node_id=nurse, to_node_id=doctor)
+
+
+def _ensure_pcm() -> None:
+    """Idempotent top-up for already-seeded DBs: re-derive + re-seed Maria's PCM
+    after the v1→v2 migration dropped the visit-scoped tables. No-op when the
+    state already exists."""
+    visit = one("SELECT * FROM visits ORDER BY id LIMIT 1")
+    if visit:
+        from orchestrator import pcm
+        pcm.derive_required_slots(visit["id"])
+        pcm.seed_context(visit["id"])
+
+
+def _ingest_fhir_roster() -> None:
+    """Fold the synthetic FHIR dataset into per-patient PCMs (when present) with
+    exact per-resource provenance. Matches patients seeded from index.json by
+    FHIR id (or name+dob) — never duplicates. Never blocks startup."""
+    try:
+        import fhir_ingest
+        fhir_ingest.ingest_dataset()
+    except Exception:
+        log.exception("FHIR roster ingest failed (continuing without it)")

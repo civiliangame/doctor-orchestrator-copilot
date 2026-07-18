@@ -3,7 +3,11 @@
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:  # optional: scripts/ run backend modules without the server venv
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover
+    def load_dotenv(*_a, **_k):
+        return False
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = Path(__file__).resolve().parent
@@ -21,9 +25,18 @@ MODEL_HAIKU = "claude-haiku-4-5-20251001" # guardrails, chart, todos (mechanical
 MODEL_FABLE = "claude-fable-5"            # end-of-session compile
 MODEL_FABLE_FALLBACK = "claude-opus-4-8"  # if the account lacks Fable access
 
-DB_PATH = BACKEND / "doc.sqlite3"
+DB_PATH = Path(os.environ.get("DOC_DB") or (BACKEND / "doc.sqlite3"))
 SEED_IMAGES_DIR = BACKEND / "seed" / "images"
-PATIENTS_DIR = BACKEND / "seed" / "patients"   # per-patient markdown chart files
+# Per-patient markdown chart files (the chart_md bridge surface).
+PATIENTS_DIR = Path(os.environ.get("DOC_PATIENTS_DIR") or (BACKEND / "seed" / "patients"))
+
+# The synthetic FHIR dataset (25 patients). Optional: when the file exists,
+# seed_all ingests every record into the Patient Context Model at startup so
+# each synthetic patient has a live, provenance-tagged belief state.
+DATASET_PATH = Path(
+    os.environ.get("DOC_DATASET")
+    or (ROOT / "synthetic-ambient-fhir-25" / "synthetic-ambient-fhir-25.jsonl")
+)
 
 PATIENT_TURN_DEBOUNCE_MS = 900   # SPEC.md § Turn pipeline
 TRANSCRIPT_CONTEXT_TURNS = 20    # trim to 10 if the 3s budget is blown

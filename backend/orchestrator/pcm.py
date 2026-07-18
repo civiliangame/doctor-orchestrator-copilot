@@ -1,27 +1,50 @@
-"""Patient Context Model (Phase 1 of the agentic harness).
+"""Patient Context Model — the canonical, source-grounded belief state.
 
-The PCM is the living, structured belief state the harness reasons over: a set of
-typed *slots*, each carrying a status (known/uncertain/stale/contradicted/missing),
-a confidence, and — crucially — full provenance. It is a VIEW layered on top of the
-append-only chart, never a replacement for it (same discipline as node_briefs vs
-chart_entries in SPEC.md).
+The PCM is the running summary of a patient's current status across ALL sources
+of information: FHIR bundles, prior clinical notes, markdown chart files, live
+scribe conversations, and (later phases) async agents. It is a set of typed
+*slots*, each carrying a status (known/uncertain/stale/contradicted/missing), a
+confidence, and — the point — full provenance. It is a VIEW layered on top of
+the append-only sources, never a replacement for them (same discipline as
+node_briefs vs chart_entries).
 
-Two design commitments enforced here:
+Scoping: slots belong to the PATIENT (`context_slots`, unique per patient+key) —
+the running status survives across visits. What a specific visit still needs is
+a separate layer (`visit_slot_requirements`), derived from that visit's
+guardrails + node goals by `derive_required_slots` (and extended by whatever a
+source declares worth tracking, e.g. the chart-file reader's `why_required`).
 
-1. Required slots are DERIVED, not hand-authored. `derive_required_slots` reads the
-   visit's guardrails + node goals (+ a condition template) and materializes the
-   slots that today's visit actually needs. Re-planning the visit re-derives them.
+Design commitments enforced here:
 
-2. Every belief has a paper trail. `record_contribution` is the ONLY way a slot's
-   value changes, and it always writes a `context_ledger` row first: which user,
-   who they are, when, whether it came from the patient, whether it was pulled from
-   live speech vs typed vs seeded, the verbatim quote, and the model (if inferred).
-   The slot's `current_ledger_id` points at the row that justifies its present value.
+1. One write path. `record_contribution` is the ONLY way a slot's value changes,
+   and it always writes a `context_ledger` row first: which actor, their role,
+   when, whether it came from the patient, speech vs typed vs record, the
+   verbatim quote, the model (if inferred), and a typed `source_ref` naming the
+   exact origin:
 
-The PCM is also kept in continuous sync with the patient's markdown chart file in
-seed/patients (see orchestrator/chart_md.py): the file is ingested into slots at
-session start / when it changes on disk, and every live contribution recorded here
-is appended back to the file with its provenance.
+       fhir:<record_id>#<ResourceType>/<id>[,...]   exact FHIR resource(s)
+       fhir:<record_id>#longitudinal                record-level summarized fact
+       turn:<turn_id>                               conversation turn
+       note:<date>:<author>                         clinical note
+       file:<md_file>                               markdown chart file ingest
+       agent:<name>[:<run>]                         async agent contribution
+
+   The slot's `current_ledger_id` points at the row that justifies its present
+   value; the full history is queryable, so the patient's context at any time is
+   auditable (replay the ledger).
+
+2. Slot vocabulary comes from ground truth, not the model. Deterministic sources
+   (FHIR ingest, seeds, visit derivation) may create slots by passing `label=`;
+   the per-turn LLM integrator can only fill slots that already exist — an
+   unknown key still gets its audit ledger row, but no slot materializes. (The
+   chart-file reader is the deliberate exception: it mints keys for what a
+   hand-authored file establishes, via chart_md's own validation.)
+
+3. Live beliefs mirror to the patient's chart file. Every LIVE contribution
+   (speech/typed/image/measurement/inferred — not fhir/seed, which came FROM
+   the record) is appended by chart_md.append_update to the patient's markdown
+   file under its DOC-managed section, with provenance. The file stays a
+   faithful, human-readable running ledger.
 """
 
 from db import ins, now_iso, one, q
@@ -32,6 +55,9 @@ VALID_STATUS = ("known", "uncertain", "stale", "contradicted", "missing")
 _STATUS_WEIGHT = {"known": 1.0, "uncertain": 0.4, "stale": 0.3, "contradicted": 0.2, "missing": 0.0}
 # Statuses that still represent an OPEN information gap the harness should close.
 _OPEN_STATUS = ("missing", "uncertain", "stale", "contradicted")
+# Contributions that happened LIVE (vs pulled from the record) — these mirror to
+# the patient's markdown chart file.
+_LIVE_KINDS = ("speech", "typed", "image", "measurement", "inferred")
 
 # ---------------------------------------------------------------- slot template
 # The standard information a cardiac follow-up needs. `keywords` are used to attach
@@ -52,10 +78,11 @@ CARDIAC_SLOTS = [
      "category": "vital", "keywords": ["bp", "blood pressure", "160/100", "recheck"]},
 ]
 
-# What the hand-written summary + last visit note already establish. These become the
-# initial ledger entries (source_kind='seed'). A value of None means "genuinely unknown
-# today" — the slot stays a visible gap. `bp.current` is seeded STALE on purpose: last
-# week's reading exists but today's visit needs a fresh one.
+# What the hand-written summary + last visit note already establish. These become
+# the initial ledger entries — provenance-wise they are just another source (the
+# prior clinical note), referenced by `note:<date>:<author>`. A value of None
+# means "genuinely unknown today" — the slot stays a visible gap. `bp.current`
+# is seeded STALE on purpose: last week's reading exists but today needs a fresh one.
 SEED_FACTS = {
     "chest_pain.radiation": (
         "Non-radiating at last visit (2026-07-11)", "known", 0.7,
@@ -76,7 +103,8 @@ SEED_FACTS = {
 }
 
 _SEED_ACTOR = {
-    "source_kind": "seed", "source_channel": "seed", "actor_role": "clinician",
+    "source_kind": "seed", "source_ref": "note:2026-07-11:dr-zhang",
+    "source_channel": "seed", "actor_role": "clinician",
     "actor_id": "dr_zhang_prior", "actor_name": "Dr. Zhang (prior visit note)",
     "from_patient": False, "extracted_from_speech": False,
 }
@@ -96,88 +124,122 @@ def _why_required(keywords: list[str], guardrails: list[dict], goals: list[str])
     return "Cardiac follow-up baseline"
 
 
+def ensure_slot(patient_id: int, key: str, label: str, category: str) -> dict:
+    """Get the patient's slot for `key`, creating an empty (missing) one if new.
+    Only deterministic sources call this — the vocabulary comes from ground truth."""
+    slot = one("SELECT * FROM context_slots WHERE patient_id=? AND key=?", (patient_id, key))
+    if slot:
+        return slot
+    sid = ins("context_slots", patient_id=patient_id, key=key, label=label,
+              category=category, status="missing", value="", confidence=0.0,
+              updated_ts=now_iso())
+    return one("SELECT * FROM context_slots WHERE id=?", (sid,))
+
+
+def add_requirement(visit_id: int, slot_key: str, why_required: str) -> None:
+    """Mark a slot as required by a visit (upsert; existing why wins unless empty)."""
+    from db import ex
+    req = one("SELECT * FROM visit_slot_requirements WHERE visit_id=? AND slot_key=?",
+              (visit_id, slot_key))
+    if req is None:
+        ins("visit_slot_requirements", visit_id=visit_id, slot_key=slot_key,
+            why_required=why_required)
+    elif why_required and not req["why_required"]:
+        ex("UPDATE visit_slot_requirements SET why_required=? WHERE id=?",
+           (why_required, req["id"]))
+
+
 def derive_required_slots(visit_id: int) -> None:
-    """Materialize the slots today's visit needs, from guardrails + node goals +
-    the condition template. Idempotent: upserts by (visit_id, key)."""
+    """Materialize what today's visit needs: ensure the patient-level slots exist
+    and record, per visit, WHY each is required (guardrails + node goals + the
+    condition template). Idempotent: upserts by (visit_id, slot_key)."""
+    visit = one("SELECT * FROM visits WHERE id=?", (visit_id,))
+    if visit is None:
+        return
     guardrails = q("SELECT * FROM guardrails WHERE visit_id=? ORDER BY num", (visit_id,))
     goal_rows = q("SELECT goals_json FROM journey_nodes WHERE visit_id=?", (visit_id,))
-    from db import jloads
+    from db import ex, jloads
     goals: list[str] = []
     for r in goal_rows:
         goals += jloads(r["goals_json"], [])
 
     for spec in CARDIAC_SLOTS:
         why = _why_required(spec["keywords"], guardrails, goals)
-        existing = one("SELECT id FROM context_slots WHERE visit_id=? AND key=?",
-                       (visit_id, spec["key"]))
-        if existing:
-            from db import ex
-            ex("UPDATE context_slots SET label=?, category=?, why_required=? WHERE id=?",
-               (spec["label"], spec["category"], why, existing["id"]))
+        slot = ensure_slot(visit["patient_id"], spec["key"], spec["label"], spec["category"])
+        ex("UPDATE context_slots SET label=?, category=? WHERE id=?",
+           (spec["label"], spec["category"], slot["id"]))
+        req = one("SELECT id FROM visit_slot_requirements WHERE visit_id=? AND slot_key=?",
+                  (visit_id, spec["key"]))
+        if req:
+            ex("UPDATE visit_slot_requirements SET why_required=? WHERE id=?", (why, req["id"]))
         else:
-            ins("context_slots", visit_id=visit_id, key=spec["key"], label=spec["label"],
-                category=spec["category"], status="missing", value="", confidence=0.0,
-                required=1, why_required=why, updated_ts=now_iso())
-
-
-def ensure_slot(visit_id: int, key: str, label: str, category: str = "history",
-                why_required: str = "", required: int = 1) -> dict:
-    """Create the slot if it does not exist yet (used by the markdown chart ingest,
-    which discovers non-cardiac slots the templates never derived). Existing slots
-    are returned untouched — labels set by derive_required_slots win."""
-    existing = one("SELECT * FROM context_slots WHERE visit_id=? AND key=?", (visit_id, key))
-    if existing:
-        return existing
-    sid = ins("context_slots", visit_id=visit_id, key=key, label=label, category=category,
-              status="missing", value="", confidence=0.0, required=required,
-              why_required=why_required, updated_ts=now_iso())
-    return one("SELECT * FROM context_slots WHERE id=?", (sid,))
+            ins("visit_slot_requirements", visit_id=visit_id, slot_key=spec["key"],
+                why_required=why)
 
 
 def seed_context(visit_id: int) -> None:
-    """Fill slots with what the seeded record already establishes, each as a
-    provenance-tagged ledger entry. Only runs when the ledger is empty for the visit."""
-    if one("SELECT id FROM context_ledger WHERE visit_id=? LIMIT 1", (visit_id,)):
+    """Fill slots with what the prior visit note already establishes, each as a
+    provenance-tagged ledger entry (source `note:...`). Only runs when the
+    patient's ledger has no note-sourced entries yet."""
+    visit = one("SELECT * FROM visits WHERE id=?", (visit_id,))
+    if visit is None:
         return
+    pid = visit["patient_id"]
+    if one("SELECT id FROM context_ledger WHERE patient_id=? AND source_kind='seed' LIMIT 1", (pid,)):
+        return
+    labels = {s["key"]: s for s in CARDIAC_SLOTS}
     for key, fact in SEED_FACTS.items():
         if fact is None:
             continue
         value, status, confidence, quote = fact
+        spec = labels.get(key, {})
         record_contribution(
-            visit_id, key, value, status, confidence,
-            raw_quote=quote, **_SEED_ACTOR,
+            pid, key, value, status, confidence,
+            raw_quote=quote, visit_id=visit_id,
+            label=spec.get("label"), category=spec.get("category", "clinical"),
+            **_SEED_ACTOR,
         )
 
 
 # ---------------------------------------------------------------- the write path
 
 def record_contribution(
-    visit_id: int, key: str, value: str, status: str, confidence: float, *,
-    source_kind: str, source_channel: str = "", actor_role: str = "system",
-    actor_id: str = "", actor_name: str = "", from_patient: bool = False,
-    extracted_from_speech: bool = False, model: str = "",
-    session_id: int | None = None, node_id: int | None = None,
-    turn_id: int | None = None, raw_quote: str = "",
+    patient_id: int, key: str, value: str, status: str, confidence: float, *,
+    source_kind: str, source_ref: str = "", source_channel: str = "",
+    actor_role: str = "system", actor_id: str = "", actor_name: str = "",
+    from_patient: bool = False, extracted_from_speech: bool = False, model: str = "",
+    visit_id: int | None = None, session_id: int | None = None,
+    node_id: int | None = None, turn_id: int | None = None, raw_quote: str = "",
+    label: str | None = None, category: str | None = None,
 ) -> dict | None:
     """The ONLY way a slot value changes. Always writes a context_ledger row for
-    provenance, then points the slot's current_ledger_id at it. Returns the fresh
-    slot row on change, or None if the update was a no-op (same value + status) or
-    the key is not a known slot (the ledger row is still written for the audit trail).
+    provenance, then points the slot's current_ledger_id at it.
+
+    Passing `label` (deterministic sources: FHIR ingest, seeds, chart-file
+    reader) creates the slot when it doesn't exist yet. Without `label` (the LLM
+    integrator), an unknown key gets its audit ledger row but no slot — the
+    model cannot invent vocabulary. Returns the fresh slot row on change, or
+    None on a no-op (same value + status) or an unmatched key.
+
+    Live contributions (speech/typed/image/measurement/inferred) are mirrored
+    to the patient's markdown chart file via chart_md.append_update.
     """
     value = (value or "").strip()
     status = status if status in VALID_STATUS else "uncertain"
     confidence = max(0.0, min(1.0, float(confidence or 0.0)))
 
-    slot = one("SELECT * FROM context_slots WHERE visit_id=? AND key=?", (visit_id, key))
-    # No-op guard: don't spam the ledger when the accumulator re-derives the same belief.
+    slot = one("SELECT * FROM context_slots WHERE patient_id=? AND key=?", (patient_id, key))
+    if slot is None and label:
+        slot = ensure_slot(patient_id, key, label, category or "clinical")
+    # No-op guard: don't spam the ledger when a source re-asserts the same belief.
     if slot and slot["value"] == value and slot["status"] == status:
         return None
 
     ledger_id = ins(
-        "context_ledger", visit_id=visit_id,
+        "context_ledger", patient_id=patient_id, visit_id=visit_id,
         slot_id=slot["id"] if slot else None, slot_key=key,
         value_written=value, status_written=status, confidence=confidence,
-        source_kind=source_kind, source_channel=source_channel,
+        source_kind=source_kind, source_ref=source_ref, source_channel=source_channel,
         actor_role=actor_role, actor_id=actor_id, actor_name=actor_name,
         from_patient=int(bool(from_patient)),
         extracted_from_speech=int(bool(extracted_from_speech)),
@@ -193,8 +255,8 @@ def record_contribution(
     fresh = one("SELECT * FROM context_slots WHERE id=?", (slot["id"],))
 
     # Mirror every LIVE belief change into the patient's markdown chart file.
-    # Seed-sourced contributions are skipped: they came FROM the record/file.
-    if source_kind != "seed":
+    # fhir/seed contributions are skipped: they came FROM the record/file.
+    if visit_id is not None and source_kind in _LIVE_KINDS:
         from orchestrator import chart_md  # local import: chart_md imports pcm
         chart_md.append_update(
             visit_id, fresh, one("SELECT * FROM context_ledger WHERE id=?", (ledger_id,))
@@ -204,12 +266,14 @@ def record_contribution(
 
 def turn_provenance(turn: dict, ctx: dict, model: str = "") -> dict:
     """Provenance kwargs for a contribution extracted from a transcript turn.
-    Speaker → actor; turn.source → speech vs typed (honest: inject == typed)."""
+    Speaker → actor; turn.source → speech vs typed (honest: inject == typed);
+    source_ref pins the exact turn."""
     is_patient = turn["speaker"] == "patient"
     node, patient = ctx["node"], ctx["patient"]
     from_speech = turn.get("source") == "soniox"
     return {
         "source_kind": "speech" if from_speech else "typed",
+        "source_ref": f"turn:{turn['id']}",
         "source_channel": turn.get("source", "inject"),
         "actor_role": "patient" if is_patient else node["station"],
         "actor_id": "patient" if is_patient else node["specialist_name"],
@@ -225,14 +289,23 @@ def turn_provenance(turn: dict, ctx: dict, model: str = "") -> dict:
 
 # ---------------------------------------------------------------- read + serialize
 
+def requirements_for(visit_id: int) -> dict[str, str]:
+    """slot_key -> why_required for a visit."""
+    rows = q("SELECT slot_key, why_required FROM visit_slot_requirements WHERE visit_id=?",
+             (visit_id,))
+    return {r["slot_key"]: r["why_required"] for r in rows}
+
+
 def ledger_shape(r: dict | None) -> dict | None:
     if r is None:
         return None
     return {
-        "id": r["id"], "slot_key": r["slot_key"],
+        "id": r["id"], "patient_id": r["patient_id"], "visit_id": r["visit_id"],
+        "slot_key": r["slot_key"],
         "value": r["value_written"], "status": r["status_written"],
         "confidence": r["confidence"], "source_kind": r["source_kind"],
-        "source_channel": r["source_channel"], "actor_role": r["actor_role"],
+        "source_ref": r["source_ref"], "source_channel": r["source_channel"],
+        "actor_role": r["actor_role"],
         "actor_id": r["actor_id"], "actor_name": r["actor_name"],
         "from_patient": bool(r["from_patient"]),
         "extracted_from_speech": bool(r["extracted_from_speech"]),
@@ -242,21 +315,32 @@ def ledger_shape(r: dict | None) -> dict | None:
     }
 
 
-def slot_shape(r: dict) -> dict:
+def slot_shape(r: dict, req: dict[str, str] | None = None,
+               visit_id: int | None = None) -> dict:
     prov = None
     if r["current_ledger_id"]:
         prov = ledger_shape(one("SELECT * FROM context_ledger WHERE id=?", (r["current_ledger_id"],)))
+    req = req or {}
     return {
-        "id": r["id"], "visit_id": r["visit_id"], "key": r["key"], "label": r["label"],
+        "id": r["id"], "patient_id": r["patient_id"], "visit_id": visit_id,
+        "key": r["key"], "label": r["label"],
         "category": r["category"], "status": r["status"], "value": r["value"],
-        "confidence": r["confidence"], "required": bool(r["required"]),
-        "why_required": r["why_required"], "updated_ts": r["updated_ts"],
+        "confidence": r["confidence"], "required": r["key"] in req,
+        "why_required": req.get(r["key"], ""), "updated_ts": r["updated_ts"],
         "provenance": prov,
     }
 
 
+def slot_shape_for_visit(r: dict, visit_id: int) -> dict:
+    return slot_shape(r, requirements_for(visit_id), visit_id)
+
+
 def completeness(visit_id: int) -> dict:
-    slots = q("SELECT status FROM context_slots WHERE visit_id=? AND required=1", (visit_id,))
+    slots = q(
+        "SELECT s.status FROM visit_slot_requirements r "
+        "JOIN visits v ON v.id = r.visit_id "
+        "JOIN context_slots s ON s.patient_id = v.patient_id AND s.key = r.slot_key "
+        "WHERE r.visit_id=?", (visit_id,))
     counts = {s: 0 for s in VALID_STATUS}
     for r in slots:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
@@ -271,12 +355,31 @@ def completeness(visit_id: int) -> dict:
 
 
 def get_pcm(visit_id: int, ledger_limit: int = 200) -> dict:
-    slots = q("SELECT * FROM context_slots WHERE visit_id=? ORDER BY category, key", (visit_id,))
-    ledger = q("SELECT * FROM context_ledger WHERE visit_id=? ORDER BY id DESC LIMIT ?",
-               (visit_id, ledger_limit))
+    """The visit view: every slot of the visit's patient, decorated with whether
+    (and why) THIS visit requires it, plus the patient's full provenance ledger."""
+    visit = one("SELECT * FROM visits WHERE id=?", (visit_id,))
+    pid = visit["patient_id"]
+    req = requirements_for(visit_id)
+    slots = q("SELECT * FROM context_slots WHERE patient_id=? ORDER BY category, key", (pid,))
+    ledger = q("SELECT * FROM context_ledger WHERE patient_id=? ORDER BY id DESC LIMIT ?",
+               (pid, ledger_limit))
     return {
         "visit_id": visit_id,
-        "slots": [slot_shape(s) for s in slots],
+        "patient_id": pid,
+        "slots": [slot_shape(s, req, visit_id) for s in slots],
         "completeness": completeness(visit_id),
+        "ledger": [ledger_shape(r) for r in ledger],
+    }
+
+
+def get_patient_pcm(patient_id: int, ledger_limit: int = 1000) -> dict:
+    """The patient view: the running status across all sources, in ingestion
+    order (slot id), with the full ledger. No visit decoration."""
+    slots = q("SELECT * FROM context_slots WHERE patient_id=? ORDER BY id", (patient_id,))
+    ledger = q("SELECT * FROM context_ledger WHERE patient_id=? ORDER BY id DESC LIMIT ?",
+               (patient_id, ledger_limit))
+    return {
+        "patient_id": patient_id,
+        "slots": [slot_shape(s) for s in slots],
         "ledger": [ledger_shape(r) for r in ledger],
     }

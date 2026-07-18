@@ -8,10 +8,13 @@ chart entries, and to-dos — then compiles a handoff brief when the session end
 
 This branch (`yilun`) adds the **Patient Context Model (PCM)** — Phase 1 of turning DOC from
 a *reactive* copilot into an *agentic harness* that actively refines patient context and
-reasons about what still needs to be gathered — plus the **markdown chart bridge**, which
-keeps the PCM in continuous two-way sync with a per-patient markdown chart file in
-`backend/seed/patients/` (26 patients: the hand-written demo patient + 25 synthetic
-patients built from FHIR records).
+reasons about what still needs to be gathered. The PCM is the **canonical, source-grounded
+running summary of a patient's current status across all sources** — FHIR bundles, prior
+notes, markdown chart files, live scribe conversations, and (later) async agents — with
+every fact traceable to the exact source that contributed it. The **markdown chart bridge**
+keeps each patient's chart file in `backend/seed/patients/` in continuous two-way sync with
+the PCM (26 patients: the hand-written demo patient + 25 synthetic patients built from FHIR
+records).
 
 ---
 
@@ -45,11 +48,15 @@ A `contradiction` flips a slot to `contradicted` (→ re-confirm); a value from 
 today's visit needs fresh is `stale` (→ re-measure). Gaps aren't just "unknown" — they're
 typed, so the harness can route each kind differently in later phases.
 
-**2. Slots are *derived*, not hand-authored.** `derive_required_slots` reads the visit's
-**guardrails + node goals** (plus a condition template) and materializes exactly the slots
-today's visit needs. The node goals and guardrails *are* an implicit information requirement
-spec — e.g. Guardrail #1 ("pain radiating to arm/jaw/back") derives the slot
-`chest_pain.radiation`. Re-planning the visit re-derives the slots.
+**2. Patient-scoped beliefs, visit-scoped requirements.** Slots belong to the **patient**
+(`UNIQUE(patient_id, key)`) — the running status survives across visits and grows as sources
+arrive. What a specific visit *needs* is a separate layer: `derive_required_slots` reads the
+visit's **guardrails + node goals** (plus a condition template) and records, per visit, which
+slots are required and why (`visit_slot_requirements`) — e.g. Guardrail #1 ("pain radiating
+to arm/jaw/back") requires `chest_pain.radiation`. Re-planning the visit re-derives the
+requirements; the beliefs themselves are untouched. Slot *vocabulary* comes from ground
+truth: deterministic sources (FHIR ingest, seeds, derivation) may create slots; the LLM
+integrator can only fill slots that already exist.
 
 **3. Every belief has a provenance ledger — for quality.** `context_ledger` is an
 append-only trail behind every belief. `record_contribution` is the **single write path**:
@@ -63,11 +70,50 @@ row captures where the belief came from, so its quality is auditable:
 | **when** | `ts` (ISO 8601 UTC) |
 | **from the patient?** | `from_patient` (bool) |
 | **extracted from live speech?** | `extracted_from_speech` — honest: an injected/typed turn is `typed`, only Soniox audio is `speech` |
-| **how** | `source_kind` = `seed` · `speech` · `typed` · `image` · `measurement` · `inferred` |
+| **how** | `source_kind` = `fhir` · `seed` · `speech` · `typed` · `image` · `measurement` · `inferred` |
+| **the exact origin** | `source_ref` — a typed pointer (grammar below) |
 | **the citation** | `raw_quote` (verbatim), `turn_id` |
 | **if inferred, by what** | `model`, `confidence` |
 
-Nothing changes a slot's value except through this path, so **no belief is ever unattributed**.
+`source_ref` names the exact origin of every belief:
+
+```
+fhir:<record_id>#<ResourceType>/<id>[,...]   exact FHIR resource(s) in a bundle
+fhir:<record_id>#longitudinal                record-level summarized fact
+turn:<turn_id>                               conversation turn (+ actor columns)
+note:<date>:<author>                         clinical note
+file:<md_file>                               markdown chart file ingest
+agent:<name>[:<run>]                         async agent contribution
+```
+
+Nothing changes a slot's value except through this path, so **no belief is ever
+unattributed** — and because the ledger is append-only, the patient's context at any past
+moment is reconstructable by replaying it.
+
+### Sources feed one write path
+
+```
+FHIR bundle      ─▶ fhir_ingest.py (deterministic, per-resource refs) ─┐
+prior note       ─▶ seed_context (note:... refs)                       ─┼─▶ record_contribution
+chart-file edits ─▶ chart_md reader (LLM, file:... refs)               ─┤
+scribe turns     ─▶ pcm worker (turn:... refs, quote→turn attribution) ─┘        │
+                                                                  context_ledger + context_slots
+                                                                                 │
+                                              markdown projection (context_render.py)
+                                              live appends to the chart file (chart_md)
+                                              completeness panel / API views
+```
+
+The per-patient markdown context files in `backend/seed/patients/` are **renderings of the
+PCM, not a parallel extraction**: `scripts/build_patient_contexts.py` ingests each FHIR
+record into a PCM and renders the file from the belief state, every line footnoted with the
+ledger entry (and exact FHIR resource) behind it. The same renderer serves
+`GET /api/patients/{id}/context.md` live — after a scribe session, the regenerated document
+shows conversation-attributed lines next to FHIR-attributed ones. When the
+`synthetic-ambient-fhir-25` dataset is present at the repo root, startup ingests all 25
+synthetic patients into live PCMs automatically. The on-disk files additionally serve as the
+**chart bridge** surface (next section): live updates append under a DOC-managed section,
+and hand edits to the authored part flow back into the PCM.
 
 ### The integrator
 
@@ -88,16 +134,18 @@ continuous sync, in both directions:
   DOC-managed section is excluded, so DOC's own appends never re-trigger a read); when the
   content changed, a Sonnet pass extracts what the chart establishes into slot contributions
   — written through `record_contribution` with `source_kind='seed'`,
-  `source_channel='chart_md'`, and a **verbatim quote from the file** as the citation. For
-  the 25 dataset patients this is also how their slots are *minted*: nothing is hardcoded;
-  the first session on a patient reads their file and derives the slots it establishes.
-  Unchanged files cost one file read + hash (no LLM call), so external edits to a chart file
-  fold into the PCM mid-session.
+  `source_ref='file:<md_file>'`, and a **verbatim quote from the file** as the citation.
+  When the FHIR dataset is present, the 25 synthetic patients' slots are already minted
+  deterministically at startup (exact resource refs), so this pass mostly confirms; its real
+  job is **hand-authored content and external edits** — change a chart file on disk and the
+  fact folds into the PCM mid-session, with the file as its cited source. Unchanged files
+  cost one file read + hash (no LLM call).
 - **Write (PCM → markdown).** `record_contribution` — still the single write path — mirrors
-  every live (non-seed) belief change back into the patient's file as an append-only line
-  under a `## Visit updates — DOC copilot` section: timestamp, slot, status, confidence,
-  value, actor, and quote. The authored part of the file is never rewritten (same discipline
-  as `chart_entries`). The markdown file is the patient's *living chart*.
+  every **live** belief change (speech/typed/image/measurement/inferred; not fhir/seed, which
+  came from the record) back into the patient's file as an append-only line under a
+  `## Visit updates — DOC copilot` section: timestamp, slot, status, confidence, value,
+  actor, and quote. The authored part of the file is never rewritten (same discipline as
+  `chart_entries`). The markdown file is the patient's *living chart*.
 
 The demo patient (Maria) gets her file generated at seed time (`00-maria-alvarez.md`) and her
 visit is pre-marked as synced, so her carefully staged `SEED_FACTS` are never re-ingested
@@ -114,9 +162,11 @@ each backed by a patient-attributed, quoted ledger entry.
 
 Beyond Maria, the nurse dashboard lists **25 synthetic patients** (Synthea + LLM transcripts,
 built by `scripts/build_patient_contexts.py`; roster in `backend/seed/patients/index.json`).
-Start a session on any of them: DOC reads their chart file into the PCM on the spot
-(~14 provenance-quoted slots for a typical file), and everything said in the session is
-appended back to the file.
+With the dataset present, each already has a fully provenance-tagged PCM at startup (20–80
+slots, every fact citing its exact FHIR resource); start a session on any of them and
+everything said is folded into the PCM and appended back to their chart file. Without the
+dataset, the first session's chart-file read mints their slots instead (LLM extraction,
+~14 provenance-quoted slots for a typical file).
 
 ---
 
@@ -125,17 +175,22 @@ appended back to the file.
 ### Data model (new tables, `backend/db.py`)
 
 ```
-context_slots   (id, visit_id, key, label, category,
+context_slots   (id, patient_id, key, label, category,
                  status,        -- known|uncertain|stale|contradicted|missing
-                 value, confidence, required, why_required,
+                 value, confidence,
                  current_ledger_id,   -- provenance pointer -> context_ledger.id
                  updated_ts)
-                 UNIQUE(visit_id, key)
+                 UNIQUE(patient_id, key)          -- the RUNNING status, across visits
 
-context_ledger  (id, visit_id, slot_id, slot_key, value_written, status_written, confidence,
+visit_slot_requirements (id, visit_id, slot_key, why_required)
+                 UNIQUE(visit_id, slot_key)       -- what TODAY's visit needs, and why
+
+context_ledger  (id, patient_id, visit_id,        -- visit_id NULL for pre-visit sources
+                 slot_id, slot_key, value_written, status_written, confidence,
                  -- provenance / quality dimensions:
-                 source_kind,           -- seed|speech|typed|image|measurement|inferred
-                 source_channel,        -- seed|soniox|inject|image_upload|manual|compiler
+                 source_kind,           -- fhir|seed|speech|typed|image|measurement|inferred
+                 source_ref,            -- typed pointer to the exact origin (grammar above)
+                 source_channel,        -- fhir_bundle|seed|soniox|inject|image_upload|manual
                  actor_role, actor_id, actor_name,
                  from_patient, extracted_from_speech,
                  model, session_id, node_id, turn_id,
@@ -148,13 +203,22 @@ chart_files     (id, visit_id UNIQUE, path,
                  last_written_ts)       -- last append (PCM -> markdown)
 
 patients        + md_file               -- markdown chart file in seed/patients ('' = none)
+                + fhir_patient_id       -- FHIR Patient.id when ingested from a bundle
+                + meta_json             -- identity/encounter framing for renderers
 ```
 
 ### API
 
 ```
 GET /api/visits/{visit_id}/context
-    -> PatientContext { visit_id, slots[], completeness, ledger[] }   # belief + score + full trail
+    -> PatientContext { visit_id, patient_id, slots[], completeness, ledger[] }
+       # the visit view: patient slots decorated with required/why for THIS visit
+
+GET /api/patients/{patient_id}/context
+    -> { patient_id, slots[], ledger[] }          # the running status, all sources
+
+GET /api/patients/{patient_id}/context.md
+    -> text/markdown                              # the rendered projection, footnoted
 ```
 
 WebSocket event on `/ws/session/{id}/events`:
@@ -183,21 +247,25 @@ Full TypeScript shapes (`ContextSlot`, `ContextLedgerEntry`, `ContextCompletenes
 
 ```
 backend/
-  db.py                     SQLite layer + schema (context_slots, context_ledger, chart_files)
-  seed.py                   Maria Alvarez seed + the 25 dataset patients from seed/patients/index.json
+  db.py                     SQLite layer + schema (context_slots, visit_slot_requirements,
+                            context_ledger, chart_files) + v1→v2 self-migration
+  seed.py                   Maria seed + 25 dataset patients (index.json); PCM derive/seed;
+                            FHIR roster ingest
+  fhir_ingest.py            FHIR record → PCM contributions (per-resource source_refs)
+  context_render.py         PCM → markdown projection (footnoted per-fact provenance)
   seed/patients/            per-patient markdown chart files (the living charts) + index.json
   orchestrator/
-    pcm.py                  PCM core: derive / seed / record_contribution / completeness / shapes
+    pcm.py                  PCM core: derive / seed / record_contribution / completeness / views
     chart_md.py             markdown chart bridge: file -> PCM ingest, PCM -> file append
     workers.py              per-turn workers incl. the `pcm` integrator (_handle_pcm, _attribute_turn)
     prompts.py              worker prompts incl. PCM_SYSTEM + the CONTEXT SLOTS block
     tick.py                 per-turn fan-out; `pcm` runs in ACCUMULATOR_WORKERS; syncs the
                             chart file before each accumulator pass
   routes/
-    context.py              GET /api/visits/{id}/context
+    context.py              GET /api/visits/{id}/context, /api/patients/{id}/context[.md]
     sessions.py             POST /api/sessions also runs the visit-start chart-file ingest
 scripts/
-  build_patient_contexts.py regenerates seed/patients from the synthetic-ambient-fhir-25 dataset
+  build_patient_contexts.py FHIR dataset → throwaway PCM → seed corpus (deterministic)
 frontend/src/
   components/ContextPanel.tsx   readiness meter + gap-first slot rows + provenance/ledger UI
   useSessionEvents.ts           handles context.slot_updated

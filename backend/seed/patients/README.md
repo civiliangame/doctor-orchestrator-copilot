@@ -1,12 +1,24 @@
 # Synthetic patient context files
 
 One context file per synthetic patient in the `synthetic-ambient-fhir-25` dataset
-(25 patients, one encounter each). Each file pairs YAML frontmatter with a
-narrative **Summary** block (same role as the hand-written Maria Alvarez
-summary in `backend/seed.py` — usable verbatim as an orchestrator prompt),
-plus structured chart background and encounter findings extracted
-deterministically from the record's FHIR R4 resources. `index.json` is the
-machine-readable roster (includes each patient's `summary_text`).
+(25 patients, one encounter each). Each file is a **markdown projection of
+that patient's Patient Context Model**: the record's FHIR resources are
+ingested into PCM slots (every fact through `pcm.record_contribution`, with
+a `source_ref` naming the exact FHIR resource it came from), and the file is
+rendered from the resulting belief state by `backend/context_render.py` —
+every line footnoted with its provenance. The narrative **Summary** block
+(same role as the hand-written Maria Alvarez summary in `backend/seed.py`)
+is stored on the patient row at ingest and usable verbatim as an
+orchestrator prompt. `index.json` is the machine-readable roster.
+
+When the app runs with the dataset present, the same ingestion happens into
+the live DB at startup and `GET /api/patients/{id}/context.md` renders the
+current version — including any scribe-conversation contributions that have
+updated the belief state since. These files are also the **chart bridge**
+surface (`orchestrator/chart_md.py`): live session updates append under a
+DOC-managed section, and hand edits to the authored part flow back into the
+PCM. `00-maria-alvarez.md` is the hand-written demo patient's chart (source
+of truth: `backend/seed.py`), not part of the dataset.
 
 **Everything is synthetic** (Synthea patients, LLM-generated transcripts).
 No real patient data. Ambient transcripts and clinical notes are NOT copied

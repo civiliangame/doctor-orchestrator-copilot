@@ -135,11 +135,16 @@ export type SlotStatus = "known" | "uncertain" | "stale" | "contradicted" | "mis
 // One provenance ledger entry — the quality trail behind a belief.
 export interface ContextLedgerEntry {
   id: number;
+  patient_id: number;
+  visit_id: number | null;
   slot_key: string;
   value: string;
   status: SlotStatus;
   confidence: number;
-  source_kind: "seed" | "speech" | "typed" | "image" | "measurement" | "inferred";
+  source_kind: "fhir" | "seed" | "speech" | "typed" | "image" | "measurement" | "inferred";
+  // Typed pointer to the exact origin: fhir:<record>#<Resource>/<id>, turn:<id>,
+  // note:<date>:<author>, agent:<name>.
+  source_ref: string;
   source_channel: string;
   actor_role: string;
   actor_id: string;
@@ -156,7 +161,8 @@ export interface ContextLedgerEntry {
 
 export interface ContextSlot {
   id: number;
-  visit_id: number;
+  patient_id: number;
+  visit_id: number | null;
   key: string;
   label: string;
   category: string;
@@ -178,6 +184,7 @@ export interface ContextCompleteness {
 
 export interface PatientContext {
   visit_id: number;
+  patient_id: number;
   slots: ContextSlot[];
   completeness: ContextCompleteness;
   ledger: ContextLedgerEntry[];

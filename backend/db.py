@@ -18,7 +18,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, dob TEXT NOT NULL,
   summary_text TEXT NOT NULL,
-  md_file TEXT NOT NULL DEFAULT ''                   -- markdown chart file in seed/patients ('' = none)
+  md_file TEXT NOT NULL DEFAULT '',                  -- markdown chart file in seed/patients ('' = none)
+  fhir_patient_id TEXT NOT NULL DEFAULT '',          -- FHIR Patient.id when ingested from a bundle
+  meta_json TEXT NOT NULL DEFAULT '{}'               -- identity/encounter framing for renderers
 );
 CREATE TABLE IF NOT EXISTS visits (
   id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL, date TEXT NOT NULL,
@@ -91,35 +93,49 @@ CREATE TABLE IF NOT EXISTS journey_mutations (
   ts TEXT NOT NULL
 );
 
--- == Patient Context Model (Phase 1) — the living belief state the agentic ==
--- == harness reasons over. Slots are DERIVED from goals+guardrails, not      ==
--- == hand-authored. context_slots holds the CURRENT belief; context_ledger   ==
--- == is the append-only provenance/quality trail behind every belief.        ==
+-- == Patient Context Model — the living belief state the agentic harness     ==
+-- == reasons over. Slots are PATIENT-scoped (the running status across all   ==
+-- == sources); visit_slot_requirements marks which slots TODAY's visit needs ==
+-- == and why. context_slots holds the CURRENT belief; context_ledger is the  ==
+-- == append-only provenance trail behind every belief. Every ledger row      ==
+-- == carries a typed source_ref pointing at the exact origin:                ==
+-- ==   fhir:<record_id>#<ResourceType>/<id>[,<ResourceType>/<id>...]         ==
+-- ==   fhir:<record_id>#longitudinal      (record-level summarized fact)     ==
+-- ==   turn:<turn_id>                     (conversation turn + actor cols)   ==
+-- ==   note:<date>:<author>               (clinical note)                    ==
+-- ==   file:<md_file>                     (markdown chart file ingest)       ==
+-- ==   agent:<name>[:<run>]               (async agent contribution)         ==
 CREATE TABLE IF NOT EXISTS context_slots (
-  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL,
+  id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL,
   key TEXT NOT NULL,                                 -- stable slot key, e.g. "chest_pain.radiation"
   label TEXT NOT NULL,                               -- human display label
-  category TEXT NOT NULL DEFAULT 'clinical',         -- symptom|vital|medication|risk|history|logistics
+  category TEXT NOT NULL DEFAULT 'clinical',         -- problem|history|medication|social|vital|lab|assessment|procedure|imaging|report|immunization|encounter|symptom|risk|logistics
   status TEXT NOT NULL DEFAULT 'missing',            -- known|uncertain|stale|contradicted|missing
   value TEXT NOT NULL DEFAULT '',                    -- current best value ('' when missing)
   confidence REAL NOT NULL DEFAULT 0.0,              -- 0..1
-  required INTEGER NOT NULL DEFAULT 1,               -- is this slot needed for THIS visit?
-  why_required TEXT NOT NULL DEFAULT '',             -- goal / guardrail that made it required
   current_ledger_id INTEGER,                         -- provenance pointer -> context_ledger.id
   updated_ts TEXT NOT NULL DEFAULT '',
-  UNIQUE(visit_id, key)
+  UNIQUE(patient_id, key)
+);
+CREATE TABLE IF NOT EXISTS visit_slot_requirements (
+  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL,
+  slot_key TEXT NOT NULL,                            -- -> context_slots.key (patient of this visit)
+  why_required TEXT NOT NULL DEFAULT '',             -- goal / guardrail that made it required
+  UNIQUE(visit_id, slot_key)
 );
 CREATE TABLE IF NOT EXISTS context_ledger (
-  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL,
+  id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL,
+  visit_id INTEGER,                                  -- NULL for pre-visit sources (e.g. FHIR ingest)
   slot_id INTEGER,                                   -- NULL if it could not be matched to a slot
   slot_key TEXT NOT NULL DEFAULT '',
   value_written TEXT NOT NULL DEFAULT '',
   status_written TEXT NOT NULL DEFAULT '',
   confidence REAL NOT NULL DEFAULT 0.0,
   -- provenance / quality dimensions (this is the whole point of the ledger):
-  source_kind TEXT NOT NULL,                         -- seed|speech|typed|image|measurement|inferred
-  source_channel TEXT NOT NULL DEFAULT '',           -- seed|soniox|inject|image_upload|manual|compiler
-  actor_role TEXT NOT NULL DEFAULT 'system',         -- patient|staff|clinician|nurse|system|intake_agent
+  source_kind TEXT NOT NULL,                         -- fhir|seed|speech|typed|image|measurement|inferred
+  source_ref TEXT NOT NULL DEFAULT '',               -- typed pointer to the exact origin (grammar above)
+  source_channel TEXT NOT NULL DEFAULT '',           -- fhir_bundle|seed|soniox|inject|image_upload|manual|compiler
+  actor_role TEXT NOT NULL DEFAULT 'system',         -- patient|staff|clinician|nurse|ehr|system|intake_agent
   actor_id TEXT NOT NULL DEFAULT '',                 -- stable id of who: "patient", specialist name, agent
   actor_name TEXT NOT NULL DEFAULT '',               -- display name of who
   from_patient INTEGER NOT NULL DEFAULT 0,           -- did this originate from the patient?
@@ -137,6 +153,29 @@ CREATE TABLE IF NOT EXISTS chart_files (
   last_written_ts TEXT NOT NULL DEFAULT ''           -- last append (PCM -> markdown)
 );
 """
+
+
+def _table_columns(c: sqlite3.Connection, table: str) -> list[str]:
+    return [r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()]
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    """Bring pre-existing DBs up to the current schema.
+
+    The PCM tables are DERIVED state (the chart is the source of truth), so the
+    visit-scoped v1 tables are dropped and rebuilt patient-scoped; seed_all
+    re-derives and re-seeds them on startup. patients gains columns in place.
+    """
+    slots_cols = _table_columns(c, "context_slots")
+    if slots_cols and "patient_id" not in slots_cols:
+        c.execute("DROP TABLE context_slots")
+        c.execute("DROP TABLE IF EXISTS context_ledger")
+    patient_cols = _table_columns(c, "patients")
+    if patient_cols and "md_file" not in patient_cols:
+        c.execute("ALTER TABLE patients ADD COLUMN md_file TEXT NOT NULL DEFAULT ''")
+    if patient_cols and "fhir_patient_id" not in patient_cols:
+        c.execute("ALTER TABLE patients ADD COLUMN fhir_patient_id TEXT NOT NULL DEFAULT ''")
+        c.execute("ALTER TABLE patients ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def now_iso() -> str:
@@ -186,12 +225,9 @@ def jloads(s: str | None, default=None):
 
 def init_db() -> None:
     with _lock:
+        _migrate(conn())
         conn().executescript(SCHEMA)
         conn().commit()
-    # Migration for databases created before the markdown chart bridge.
-    cols = [r["name"] for r in q("PRAGMA table_info(patients)")]
-    if "md_file" not in cols:
-        ex("ALTER TABLE patients ADD COLUMN md_file TEXT NOT NULL DEFAULT ''")
 
 
 def wipe_db() -> None:

@@ -315,24 +315,38 @@ type ServerEvent =
 ## Patient Context Model (Phase 1 — agentic harness)
 
 The PCM is the structured, provenance-tracked belief state the agentic harness reasons
-over. It is a **view** on top of the append-only chart, never a replacement. Slots are
-**derived** from the visit's guardrails + node goals (not hand-authored); every belief
-carries a full provenance ledger entry so its quality is auditable — which user, who they
-are, when, whether it came from the patient, and whether it was pulled from live speech vs
-typed vs seeded from the record.
+over. It is a **view** on top of the append-only sources, never a replacement. Slots are
+**patient-scoped** (the running status across all sources — FHIR bundles, prior notes,
+scribe conversations); which slots a given visit *requires* (and why) is a per-visit layer
+derived from that visit's guardrails + node goals. Every belief carries a full provenance
+ledger entry so its quality is auditable — which user, who they are, when, whether it came
+from the patient, whether it was pulled from live speech vs typed vs record — and a typed
+`source_ref` naming the exact origin:
+
+```
+fhir:<record_id>#<ResourceType>/<id>[,...]   exact FHIR resource(s) in a bundle
+fhir:<record_id>#longitudinal                record-level summarized fact
+turn:<turn_id>                               conversation turn
+note:<date>:<author>                         clinical note
+file:<md_file>                               markdown chart file ingest
+agent:<name>[:<run>]                         async agent contribution
+```
 
 ```ts
 type SlotStatus = "known" | "uncertain" | "stale" | "contradicted" | "missing";
 
 interface ContextLedgerEntry {      // one contribution to a belief — the quality trail
   id: number;
+  patient_id: number;
+  visit_id: number | null;          // null for pre-visit sources (e.g. FHIR ingest)
   slot_key: string;
   value: string;
   status: SlotStatus;
   confidence: number;               // 0..1
-  source_kind: "seed" | "speech" | "typed" | "image" | "measurement" | "inferred";
-  source_channel: string;           // "seed" | "soniox" | "inject" | "image_upload" | ...
-  actor_role: string;               // "patient" | "nurse" | "doctor" | "clinician" | "system" | ...
+  source_kind: "fhir" | "seed" | "speech" | "typed" | "image" | "measurement" | "inferred";
+  source_ref: string;               // typed pointer to the exact origin (grammar above)
+  source_channel: string;           // "fhir_bundle" | "seed" | "soniox" | "inject" | ...
+  actor_role: string;               // "patient" | "nurse" | "doctor" | "clinician" | "ehr" | "system" | ...
   actor_id: string;                 // stable id of who: "patient", specialist name, agent
   actor_name: string;               // display name of who
   from_patient: boolean;            // did this originate from the patient?
@@ -347,14 +361,17 @@ interface ContextLedgerEntry {      // one contribution to a belief — the qual
 
 interface ContextSlot {
   id: number;
-  visit_id: number;
-  key: string;                      // stable, e.g. "chest_pain.radiation"
+  patient_id: number;
+  visit_id: number | null;          // the visit whose view decorated this slot (null on patient views)
+  key: string;                      // stable, e.g. "chest_pain.radiation" or "vital.blood-pressure"
   label: string;
-  category: string;                 // symptom | vital | medication | risk | history | logistics
+  category: string;                 // problem | history | medication | social | vital | lab |
+                                    // assessment | procedure | imaging | report | immunization |
+                                    // encounter | symptom | risk | logistics
   status: SlotStatus;
   value: string;                    // current best value ("" when missing)
   confidence: number;
-  required: boolean;
+  required: boolean;                // does the requested visit require this slot?
   why_required: string;             // the goal / guardrail that made it required
   updated_ts: string;
   provenance: ContextLedgerEntry | null;   // the ledger row justifying the current value
@@ -367,13 +384,22 @@ interface ContextCompleteness {
   percent: number;                  // weighted 0..100 readiness score
 }
 
-interface PatientContext { visit_id: number; slots: ContextSlot[];
+interface PatientContext { visit_id: number; patient_id: number; slots: ContextSlot[];
   completeness: ContextCompleteness; ledger: ContextLedgerEntry[]; }
 ```
 
 ```
 GET /api/visits/{visit_id}/context
-  returns  PatientContext            // belief state + completeness + full ledger (newest first)
+  returns  PatientContext            // the visit view: patient slots decorated with
+                                     // required/why for THIS visit + completeness + ledger
+
+GET /api/patients/{patient_id}/context
+  returns  { patient_id: number; slots: ContextSlot[]; ledger: ContextLedgerEntry[] }
+                                     // the running status across all sources
+
+GET /api/patients/{patient_id}/context.md
+  returns  text/markdown             // the rendered projection: every line footnoted with
+                                     // the ledger entry (source_ref, actor) behind it
 ```
 
 Live updates arrive on the events socket as `context.slot_updated` (above): the backend's

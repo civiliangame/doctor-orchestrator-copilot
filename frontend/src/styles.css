@@ -365,3 +365,7 @@ textarea { width: 100%; resize: vertical; }
 .hist-val { color: var(--text); }
 .hist-quote { font-style: italic; color: var(--patient); }
 .hist-src { margin-left: auto; color: var(--text-dim); }
+.hist-ref {
+  flex-basis: 100%; font-size: 0.68rem; color: var(--text-dim);
+  word-break: break-all;
+}
