@@ -1,79 +1,100 @@
-import { useEffect, useRef } from "react";
-import { useTranscriber, Turn } from "./useTranscriber";
+// App shell: station switcher + hash routing. Screens live in src/screens/.
+//
+// Routes:
+//   #/                                appointments for the current station
+//   #/patient/:patientId/:nodeId      patient page (also the payoff view)
+//   #/plan/:visitId/:patientId/:nodeId  Beat D planning
+//   #/session/:sessionId/:nodeId/:patientId  live session
 
-const SPEAKER_COLORS = ["#0e7490", "#7c3aed", "#b45309", "#be185d", "#15803d"];
+import { useEffect, useState } from "react";
+import type { Station } from "./types";
+import { AppointmentsScreen } from "./screens/AppointmentsScreen";
+import { PatientScreen } from "./screens/PatientScreen";
+import { PlanningScreen } from "./screens/PlanningScreen";
+import { SessionScreen } from "./screens/SessionScreen";
 
-function speakerColor(speaker: string): string {
-  const n = parseInt(speaker, 10);
-  return SPEAKER_COLORS[(Number.isNaN(n) ? 0 : n - 1) % SPEAKER_COLORS.length];
+const STATIONS: Station[] = ["nurse", "cardiology", "imaging", "doctor"];
+
+export function navigate(hash: string) {
+  location.hash = hash;
 }
 
-function TurnRow({ turn }: { turn: Turn }) {
-  return (
-    <div className="turn">
-      <span className="speaker-chip" style={{ background: speakerColor(turn.speaker) }}>
-        Speaker {turn.speaker}
-      </span>
-      <p className="turn-text">
-        {turn.text.trim()}
-        {turn.endpointed && <span className="endpoint-dot" title="end of turn detected" />}
-      </p>
-    </div>
-  );
+function useHash(): string {
+  const [hash, setHash] = useState(location.hash);
+  useEffect(() => {
+    const onChange = () => setHash(location.hash);
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+  return hash;
 }
 
 export default function App() {
-  const { status, error, turns, interim, start, stop } = useTranscriber();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const hash = useHash();
+  const [station, setStation] = useState<Station>(
+    () => (localStorage.getItem("doc.station") as Station) || "nurse",
+  );
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns, interim]);
+  const setStationPersist = (s: Station) => {
+    localStorage.setItem("doc.station", s);
+    setStation(s);
+    navigate("#/");
+  };
 
-  const live = status === "live";
-  const busy = status === "connecting" || status === "finishing";
+  const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  let screen: JSX.Element;
+  if (parts[0] === "patient" && parts.length >= 3) {
+    screen = (
+      <PatientScreen
+        patientId={Number(parts[1])}
+        nodeId={Number(parts[2])}
+        station={station}
+      />
+    );
+  } else if (parts[0] === "plan" && parts.length >= 4) {
+    screen = (
+      <PlanningScreen
+        visitId={Number(parts[1])}
+        patientId={Number(parts[2])}
+        nodeId={Number(parts[3])}
+      />
+    );
+  } else if (parts[0] === "session" && parts.length >= 4) {
+    screen = (
+      <SessionScreen
+        sessionId={Number(parts[1])}
+        nodeId={Number(parts[2])}
+        patientId={Number(parts[3])}
+        station={station}
+      />
+    );
+  } else {
+    screen = <AppointmentsScreen station={station} />;
+  }
 
   return (
-    <div className="page">
-      <header className="header">
-        <div>
-          <h1>DOC</h1>
-          <p className="subtitle">Doctor Orchestrator Copilot — live transcription</p>
-        </div>
-        <div className="header-right">
-          <span className={`status status-${status}`}>
-            {live && <span className="pulse" />}
-            {status}
-          </span>
-          <button
-            className={live ? "btn stop" : "btn start"}
-            disabled={busy}
-            onClick={live ? stop : start}
+    <div className="app">
+      <header className="topbar">
+        <a className="brand" href="#/">
+          <span className="brand-mark">DOC</span>
+          <span className="brand-sub">Doctor Orchestrator Copilot</span>
+        </a>
+        <label className="station-switch">
+          <span>Station</span>
+          <select
+            value={station}
+            onChange={(e) => setStationPersist(e.target.value as Station)}
           >
-            {live ? "End Session" : busy ? "…" : "Start Session"}
-          </button>
-        </div>
+            {STATIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
-
-      {error && <div className="error-banner">{error}</div>}
-
-      <main className="transcript">
-        {turns.length === 0 && !interim && (
-          <p className="empty">
-            Start a session and speak. Remember the grounding line: “Hi, I’m Doctor
-            Zhang, how are you doing today?” — the first speaker is always staff.
-          </p>
-        )}
-        {turns.map((t, i) => (
-          <TurnRow key={i} turn={t} />
-        ))}
-        {interim && <p className="interim">{interim}</p>}
-        <div ref={bottomRef} />
-      </main>
-
-      <footer className="footer">
-        Demo system — synthetic data only. Not for clinical use.
-      </footer>
+      <div className="disclaimer">Demo system — synthetic data only. Not for clinical use.</div>
+      <main className="screen">{screen}</main>
     </div>
   );
 }
