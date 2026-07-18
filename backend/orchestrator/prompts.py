@@ -1,320 +1,161 @@
-"""Prompt assembly for the per-turn workers, the compiler, and the planner.
+"""Prompt assembly for the pipeline agents (SPEC.md § Pipeline).
 
-Layout per SPEC.md § Turn pipeline:
-- CACHED prefix: identical string across all five workers and all ticks of a
-  session (built once, cached in _prefix_cache) -> prefix cache hit for the
-  4 sibling calls of every tick.
-- Per-worker second system block: role + output schema + rules (static text).
-- Dynamic user message: journey, chart, todos, already-shown (dedup),
-  transcript window with the analyzed turn(s) clearly marked.
+Caching layout:
+- corpus_prefix(run_id): the patient header + ALL documents verbatim. This is
+  the shared CACHED system block for triage, every specialist, the plan
+  orchestrator, and the compiler. It must stay byte-identical for the run's
+  lifetime — no timestamps, no per-call content.
+- Each agent appends its own (uncached) system block + a dynamic user message.
+- The interview loop builds its own cached system (persona + plan + digest)
+  in interview.py from interview_system() here.
 """
 
-from config import TRANSCRIPT_CONTEXT_TURNS
-from db import jloads, q
-
-# ---------------------------------------------------------------- cached prefix
+from config import MAX_INTERVIEW_QUESTIONS, PROBE_CAP
+from db import one, q
 
 _prefix_cache: dict[int, str] = {}
 
 
-def session_prefix(ctx: dict) -> str:
-    """The shared cached system block. Byte-identical for a session's lifetime."""
-    sid = ctx["session"]["id"]
-    cached = _prefix_cache.get(sid)
+def corpus_prefix(run_id: int) -> str:
+    """Shared cached block: the full messy record, verbatim."""
+    cached = _prefix_cache.get(run_id)
     if cached is not None:
         return cached
 
-    node, visit, patient = ctx["node"], ctx["visit"], ctx["patient"]
-    guardrails = q(
-        "SELECT * FROM guardrails WHERE visit_id=? ORDER BY num", (visit["id"],)
+    run = one("SELECT * FROM runs WHERE id=?", (run_id,))
+    patient = one("SELECT * FROM patients WHERE id=?", (run["patient_id"],))
+    docs = q(
+        "SELECT * FROM documents WHERE patient_id=? ORDER BY date, id",
+        (patient["id"],),
     )
-    guardrail_lines = "\n".join(
-        f"Guardrail #{g['num']}: IF {g['condition_text']} THEN {g['action_text']}"
-        for g in guardrails
-    ) or "(none defined)"
-    goals = jloads(node["goals_json"], [])
-    goal_lines = "\n".join(f"- {g}" for g in goals) or "- (no goals set)"
+    doc_texts = "\n\n".join(
+        f"### DOCUMENT: {d['title']} — {d['author']} — {d['date']}\n{d['content_md']}"
+        for d in docs
+    )
+    text = f"""You are part of DOC, a clinical context-cleanup system. A patient's record has accumulated contradictions, gaps, and vague statements across multiple authors. Agents cross-read the record, an orchestrator turns their findings into a pre-visit phone interview, and a compiler produces a clean intake for the treating clinician. Synthetic data; a demo — never real medical advice.
 
-    text = f"""You are DOC (Doctor Orchestrator Copilot), an ambient clinical copilot. You listen to a live clinic conversation between a staff member and a patient. Several specialized workers analyze each patient turn; this shared context block is identical for all of them. Your worker role and output schema follow in the next system block.
+PATIENT: {patient['name']}, DOB {patient['dob']}.
 
-GLOBAL RULES (every worker follows all of these):
-1. SILENCE IS PREFERRED. Every output array may be empty. Emit an item ONLY when it is clearly warranted by the conversation. No filler, no speculation, no restating the obvious.
-2. NEVER repeat an item that is already shown (see the ALREADY SHOWN section of the user message). If in doubt whether something is a duplicate, stay silent.
-3. QUOTE TRIGGER TEXT VERBATIM. Wherever a field asks for a quote, copy the exact words from the transcript or record. Never paraphrase inside quotes.
-4. You are a copilot, not a doctor. Never diagnose. Frame findings as items for the clinical team's review.
-5. Reply with ONLY one JSON object matching your worker's schema. No prose, no markdown fences.
+THE RECORD ({len(docs)} documents, verbatim):
 
-== PATIENT RECORD (hand-written clinical summary; includes the last visit's note) ==
-{patient["summary_text"]}
+{doc_texts}
 
-== TODAY'S VISIT INTENT (written by the doctor when planning this visit) ==
-{visit["intent_text"]}
-
-== NUMBERED GUARDRAILS (the doctor's escalation checklist for today's visit) ==
-{guardrail_lines}
-
-== CURRENT STATION (where this live session is happening) ==
-Station: {node["station"]} — {node["specialist_name"]} ({node["specialist_profile"]})
-Session goals for this station:
-{goal_lines}"""
-
-    _prefix_cache[sid] = text
+GLOBAL RULES:
+- Ground every claim in the documents. Quote trigger text VERBATIM, character-for-character.
+- Silence beats filler: empty arrays are valid output. Never invent an issue to fill space.
+- Output raw JSON only — no prose, no markdown fences.
+Your specific role and output schema follow in the next system block."""
+    _prefix_cache[run_id] = text
     return text
 
 
-def clear_session_prefix(session_id: int) -> None:
-    _prefix_cache.pop(session_id, None)
+def clear_prefix(run_id: int) -> None:
+    _prefix_cache.pop(run_id, None)
 
 
-# ---------------------------------------------------------------- worker system blocks
+# ------------------------------------------------------------------- triage
 
-CONTRADICTIONS_SYSTEM = """YOUR WORKER: CONTRADICTION DETECTOR (runs once per patient turn)
+TRIAGE_SYSTEM = """ROLE: Triage. Decide which specialist reviewers this record needs.
 
-Compare THE TURN TO ANALYZE (marked at the end of the user message) against ALL THREE sources:
-  (a) the seeded PATIENT RECORD block above (medications, history, plan),
-  (b) the last visit's note inside that record (what was prescribed and observed last week),
-  (c) EVERY earlier statement in this session's transcript.
+Pick 2-4 specialists whose domains are implicated by the record (e.g. cardiology, neurology, general_medicine, pulmonology, endocrinology). general_medicine also owns medication reconciliation and social-history discrepancies. Only pick specialists with real work to do here.
 
-Report a contradiction ONLY when the patient's new statement factually conflicts with one of those sources. New information, symptom progression, or elaboration is NOT a contradiction:
-- Symptom changes since the last visit are EXPECTED (that is why this follow-up exists). Pain that was non-radiating last week but radiates now is progression — never a contradiction.
-- Vague patient timelines ("maybe two weeks ago") that only roughly disagree with record dates are not contradictions.
-- A patient truthfully disclosing non-adherence ("I stopped taking X") does NOT contradict the record showing X was prescribed or started — that is honest disclosure the chart worker records. Never flag "stopped X" against a "started/prescribed X" note, regardless of how the dates line up. The contradiction happens if they LATER claim adherence ("I've been taking X every day") after that disclosure — then quote both of the patient's statements.
-- A contradiction is the patient asserting a fact that conflicts with a fact they or the record previously asserted.
+OUTPUT SCHEMA:
+{"specialists": [{"key": "cardiology", "display_name": "Cardiology", "rationale": "one line: why this record needs this reviewer"}]}"""
 
-Output schema (one JSON object, nothing else):
-{"contradictions": [{
-  "statement": "verbatim quote from THE TURN TO ANALYZE",
-  "conflicts_with": "verbatim conflicting quote, then its source label in parentheses",
-  "severity": "high|note",
-  "suggested_probe": "one short question the staff member can ask to resolve the conflict"
-}]}
-
-Rules:
-- "statement" and "conflicts_with" MUST contain the actual quoted words.
-- Source labels: (this session, earlier turn) / (last visit note) / (patient record). Example conflicts_with value: "the aspirin was bothering my stomach, so I stopped it (this session, earlier turn)".
-- severity "high" for medication adherence, cardiac symptoms, or any safety-relevant conflict; otherwise "note".
-- suggested_probe: ONE short question, at most 15 words.
-- Return {"contradictions": []} when there is no genuine direct conflict. Never re-report a contradiction listed in ALREADY SHOWN."""
-
-SUGGESTIONS_SYSTEM = """YOUR WORKER: SUGGESTIONS (at most 2 per turn)
-
-Suggest at most 2 things the current staff member should ask or do NEXT, driven by:
-- the session goals for this station,
-- the visit intent and numbered guardrails,
-- what THE TURN TO ANALYZE just revealed.
-
-Output schema (one JSON object, nothing else):
-{"suggestions": [{
-  "kind": "question|action|observation",
-  "text": "short, speakable suggestion",
-  "reason": "short pointer to the driving goal or guardrail",
-  "priority": "high|normal"
-}]}
-
-Rules:
-- 0, 1, or 2 items; prefer 0 or 1. An empty array is the right answer when the conversation is already on track.
-- "reason" cites the source, e.g. "Dr. Zhang's goal #1" or "Guardrail #2: numbness / shortness of breath".
-- Never suggest something the staff member just asked, something the patient already answered, or anything in ALREADY SHOWN — including the same action reworded.
-- When a guardrail fires on this turn, do NOT suggest escalating — the red alert card already instructs that. Instead suggest the single next clinical question, e.g. screening the remaining escalation criteria ("Ask about numbness and shortness of breath now").
-- Keep "text" under 20 words; keep "reason" under 10 words."""
-
-GUARDRAILS_SYSTEM = """YOUR WORKER: GUARDRAIL CHECKLIST MATCHER
-
-You are a strict checklist matcher. Use ONLY two inputs: the NUMBERED GUARDRAILS list above and the transcript in the user message. Ignore all other context. Do not editorialize, infer beyond the checklist, or invent conditions.
-
-A guardrail fires ONLY if THE TURN TO ANALYZE explicitly satisfies its condition in the patient's own words. Example: pain "spreading to my left arm" satisfies a condition about pain radiating to the arm. A condition being merely discussed, asked about, or explicitly denied does NOT fire it.
-
-Output schema (one JSON object, nothing else):
-{"guardrail_alerts": [{
-  "guardrail_id": <the guardrail NUMBER from the list, e.g. 1>,
-  "triggered_by": "patient: 'verbatim quote from THE TURN TO ANALYZE'",
-  "action": "the guardrail's action text, copied from the list"
-}]}
-
-Rules:
-- Empty array unless a condition is explicitly met by THIS turn.
-- At most one entry per guardrail number. Never fire a number already listed under ALREADY SHOWN alerts.
-- "triggered_by" must contain the patient's exact words inside the quotes."""
-
-CHART_SYSTEM = """YOUR WORKER: CHART SCRIBE (append-only)
-
-Extract NEW clinical facts from the NEW TURNS (marked in the transcript) as terse chart entries. Style: clinical shorthand — e.g. "BP 142/88", "Chest pain now radiating to left arm, onset ~2 days", "Reports stopping aspirin ~2 wks ago due to GI upset".
-
-Output schema (one JSON object, nothing else):
-{"chart_updates": [{"category": "symptom|vital|finding|note|contradiction", "text": "..."}]}
-
-Rules:
-- Only facts actually stated in the NEW turns. 0-3 entries per pass; empty array when the new turns contain no new clinical facts (greetings, logistics, repeats).
-- Never repeat or rephrase anything already in CHART SO FAR.
-- Use category "contradiction" only when recording that the patient contradicted an earlier statement or the record (e.g. misreported adherence, later corrected)."""
-
-TODOS_SYSTEM = """YOUR WORKER: TO-DO COORDINATOR
-
-Maintain the cross-station to-do list for today's visit. Use node ids from the JOURNEY section of the user message for "for_node_id".
-
-Ops:
-- "add": a new, concrete task for a LATER station that follows from the NEW turns (e.g. a finding the cardiologist must evaluate). Requires for_node_id, text, priority.
-- "complete": an open todo in CURRENT TODOS was fully answered or handled during this session. Requires its id.
-- "edit": an existing todo's text or priority must change based on new information. Requires id plus the changed fields.
-
-Output schema (one JSON object, nothing else):
-{"todo_updates": [{"op": "add|complete|edit", "id": "todo-<n>", "for_node_id": <node id>, "text": "...", "priority": "high|normal"}]}
-
-Rules:
-- An empty array is the norm. Add a todo only for a genuinely actionable, station-specific follow-up; never duplicate an existing todo (including near-duplicates).
-- Keep todo text specific and clinical, e.g. "Evaluate radiating chest pain with finger paresthesia, onset ~2 days"."""
-
-WORKER_SYSTEM = {
-    "contradictions": CONTRADICTIONS_SYSTEM,
-    "suggestions": SUGGESTIONS_SYSTEM,
-    "guardrails": GUARDRAILS_SYSTEM,
-    "chart": CHART_SYSTEM,
-    "todos": TODOS_SYSTEM,
-}
-
-COMPILE_SYSTEM = """YOUR WORKER: END-OF-SESSION COMPILER
-
-The session at the current station has ended. Produce:
-1. Exactly one handoff brief per node listed under NEXT NODES in the user message — a concise markdown summary of what this session learned that THAT specific specialist needs, plus their big action items.
-2. To-do reconciliation ops: close ("complete") todos that were answered during this session, dedupe, and re-prioritize where warranted. You may also "add" a missing follow-up.
-
-Output schema (one JSON object, nothing else):
-{"briefs": [{
-   "node_id": <id from NEXT NODES>,
-   "summary_md": "markdown, <=120 words, most important finding first",
-   "action_items": [{"text": "imperative, specific", "priority": "high|normal"}]
- }],
- "todo_ops": [{"op": "complete|edit|add", "id": "todo-<n>", "for_node_id": <node id>, "text": "...", "priority": "high|normal"}]}
-
-Rules:
-- One brief per listed next node, tailored to that station's role. 2-4 action items each.
-- Briefs MUST reflect fired guardrail alerts and contradictions — they are safety-critical handoff context. Quote vitals exactly.
-- Do not invent findings; only compile what is in the transcript, chart, alerts, contradictions, and todos.
-- The raw chart is preserved separately; the brief is a curated view, not a replacement."""
-
-PLAN_SYSTEM = """You are DOC's visit planner. You are given a FIXED patient journey (you may NOT add, remove, or reorder nodes) and the doctor's free-text intent for the visit. Produce:
-1. Per-node goals: 2-4 short imperative goals per node, derived from the intent and the patient record, checkable during that station's session.
-2. Numbered guardrails: one per condition->action escalation the doctor states, numbered IN THE EXACT ORDER the conditions appear in the intent text. Guardrail #1 is the first condition the doctor mentions.
-
-Output schema (one JSON object, nothing else):
-{"nodes": [{"node_id": <id>, "goals": ["...", "..."]}],
- "guardrails": [{"num": 1, "condition_text": "concise clinical condition", "action_text": "the doctor's required action", "cardiology_escalation": true}]}
-
-Rules:
-- Cover every condition->action pair the doctor states; do not invent extra guardrails.
-- SPLITTING: split at the level of the doctor's distinct condition CLAUSES, not individual words. "if the pain radiates to the arm, jaw, or back" is ONE clause -> ONE guardrail; "or she reports numbness or shortness of breath" is a SECOND clause -> ONE guardrail covering both symptoms together. Never split a single clause's alternatives ("arm, jaw, or back"; "numbness or shortness of breath") into separate guardrails.
-- Monitoring instructions are guardrails too: "confirm she's tolerating drug X" implies a guardrail like "X non-adherence or side effects -> flag to the doctor".
-- Only conditions requiring a DEVIATION or safety action (escalate, hold, flag, call) are guardrails. Routine plan steps ("chest CT if the pain persists") are node goals, NOT guardrails.
-- WORKED EXAMPLE — the intent "If the pain radiates to the arm, jaw, or back, or she reports numbness or shortness of breath — escalate: I want a cardiology consult before any imaging. Confirm she's tolerating drug X; she's had side effects before. Recheck BP — if it's above 160/100, hold imaging and call me." yields exactly FOUR guardrails:
-  #1 "Chest pain radiating to the arm, jaw, or back" -> "Escalate: cardiology consult before any imaging" (cardiology_escalation: true)
-  #2 "New numbness or shortness of breath" -> "Escalate: cardiology consult before any imaging (same escalation as #1)" (cardiology_escalation: true)
-  #3 "Drug X non-adherence or side effects" -> "Flag to the doctor before continuing the drug X plan" (cardiology_escalation: false)
-  #4 "Blood pressure above 160/100" -> "Hold imaging; call the doctor" (cardiology_escalation: false)
-- "cardiology_escalation" is true ONLY for guardrails whose action is escalating to a cardiology consult before imaging (e.g. pain radiating to arm/jaw/back; new numbness or shortness of breath). All other guardrails: false.
-- condition_text and action_text must be short and display-ready (they render on cards).
-- Include an entry in "nodes" for every journey node given."""
+TRIAGE_USER = "Read the record above and select the specialist panel. JSON only."
 
 
-# ---------------------------------------------------------------- dynamic user message
+# --------------------------------------------------------------- specialists
 
-def _transcript_rows(session_id: int, upto_turn_id: int, since_turn_id: int | None) -> list[dict]:
-    rows = q(
-        "SELECT * FROM transcript_turns WHERE session_id=? AND id<=? ORDER BY id DESC LIMIT ?",
-        (session_id, upto_turn_id, TRANSCRIPT_CONTEXT_TURNS),
-    )[::-1]
-    if since_turn_id is not None and rows and rows[0]["id"] > since_turn_id + 1:
-        extra = q(
-            "SELECT * FROM transcript_turns WHERE session_id=? AND id>? AND id<? ORDER BY id",
-            (session_id, since_turn_id, rows[0]["id"]),
+def specialist_system(display_name: str, rationale: str) -> str:
+    return f"""ROLE: {display_name} reviewer. ({rationale})
+
+Cross-read ALL the documents through your specialty's lens and report every issue a careful {display_name} clinician would flag:
+- contradiction: two places in the record (or the record vs. itself) that cannot both be true. Quote BOTH sides.
+- gap: a question that should have been asked or a test/exam that should exist but doesn't. Quote the text that reveals the hole.
+- ambiguity: a vague statement ("feels funny", "went weird") that is clinically useless until characterized. Quote it.
+
+For each finding set patient_answerable: true if a phone call to the patient could resolve it; false if it needs an in-person exam, a measurement, or a test (those become manual tasks for the visit).
+severity "high" = could change urgent management; "normal" otherwise.
+Report only findings in or adjacent to your specialty. Other specialists cover the rest. Empty findings array is a valid answer.
+
+OUTPUT SCHEMA:
+{{"findings": [{{"kind": "contradiction|gap|ambiguity", "severity": "high|normal", "title": "short headline", "detail": "one paragraph explaining the issue and why it matters", "quotes": [{{"doc_title": "exact document title", "quote": "verbatim text"}}], "patient_answerable": true}}]}}"""
+
+SPECIALIST_USER = "Review the record above as instructed. JSON only."
+
+
+# ---------------------------------------------------------------- plan (orchestrator)
+
+PLAN_SYSTEM = f"""ROLE: Interview orchestrator. The specialist findings are in the user message, each with an id.
+
+Build the phone-interview plan that resolves them:
+1. questions — for findings with patient_answerable=true. Merge findings a single conversation thread can resolve (e.g. one headache-characterization question can cover an ambiguity AND a laterality contradiction). At most {MAX_INTERVIEW_QUESTIONS} questions; if there are more candidates, keep the highest-severity ones. Order for a natural conversation: symptoms first (most concerning first), then medications, then history. Each question needs:
+   - question: patient-facing phrasing, warm, no jargon
+   - sub_questions: the follow-up angles the interviewer works through if the first answer is vague
+   - completeness_criteria: what a good-enough answer must pin down (be specific: onset, location, character, severity 0-10, triggers, relievers, radiation...)
+   - finding_ids: the findings this question resolves
+2. specialist_tasks — for findings with patient_answerable=false: route to the right specialist with a concrete in-office instruction ("12-lead ECG", "fundoscopic exam and pupillary light reflex").
+
+Do not invent questions unconnected to a finding. Every patient_answerable=false finding must get a task.
+
+OUTPUT SCHEMA:
+{{"questions": [{{"finding_ids": [1,2], "question": "...", "sub_questions": ["..."], "completeness_criteria": "..."}}],
+ "specialist_tasks": [{{"finding_id": 3, "for_specialist": "cardiology", "instruction": "...", "why": "..."}}]}}"""
+
+
+def plan_user(findings: list[dict]) -> str:
+    lines = []
+    for f in findings:
+        quotes = "; ".join(f'{q["doc_title"]}: "{q["quote"]}"' for q in f["quotes"])
+        lines.append(
+            f"- finding id {f['id']} [{f['kind']}, {f['severity']}, "
+            f"patient_answerable={f['patient_answerable']}] {f['title']}: {f['detail']} "
+            f"(evidence: {quotes})"
         )
-        rows = extra + rows
-    return rows
+    return "SPECIALIST FINDINGS:\n" + "\n".join(lines) + "\n\nBuild the interview plan. JSON only."
 
 
-def dynamic_message(
-    ctx: dict, turn_id: int, mode: str, since_turn_id: int | None = None
-) -> str:
-    """The per-tick user message. mode: 'urgent' (analyze the final patient turn)
-    or 'accumulator' (process all turns newer than since_turn_id)."""
-    session, node, visit = ctx["session"], ctx["node"], ctx["visit"]
-    sid, vid = session["id"], visit["id"]
+# ------------------------------------------------------------- interview agent
 
-    nodes = q("SELECT * FROM journey_nodes WHERE visit_id=? ORDER BY position", (vid,))
-    journey_lines = "\n".join(
-        f"node {n['id']} [{n['status']}]: {n['station']} — {n['specialist_name']}"
-        for n in nodes
-    )
-    station_by_node = {n["id"]: n["station"] for n in nodes}
-
-    chart = q("SELECT * FROM chart_entries WHERE visit_id=? ORDER BY id", (vid,))
-    chart_lines = "\n".join(
-        f"[{c['category']}] {c['text']} ({station_by_node.get(c['node_id'], '?')})"
-        for c in chart
-    ) or "(none yet)"
-
-    todos = q("SELECT * FROM todos WHERE visit_id=? ORDER BY id", (vid,))
-    todo_lines = "\n".join(
-        f"todo-{t['id']} [{t['status']}, {t['priority']}] for node {t['for_node_id']}"
-        f" ({station_by_node.get(t['for_node_id'], '?')}): {t['text']}"
-        for t in todos
-    ) or "(none)"
-
-    shown_sug = q("SELECT text FROM suggestions WHERE session_id=? ORDER BY id", (sid,))
-    shown_alerts = q(
-        "SELECT g.num, a.triggered_by FROM guardrail_alerts a"
-        " JOIN guardrails g ON a.guardrail_id=g.id WHERE a.session_id=? ORDER BY a.id",
-        (sid,),
-    )
-    shown_con = q("SELECT statement FROM contradictions WHERE session_id=? ORDER BY id", (sid,))
-    shown_lines = []
-    shown_lines.append("suggestions:")
-    shown_lines += [f"- {s['text']}" for s in shown_sug] or ["- (none)"]
-    shown_lines.append("guardrail alerts (these numbers must NOT fire again):")
-    shown_lines += [f"- #{a['num']}: {a['triggered_by']}" for a in shown_alerts] or ["- (none)"]
-    shown_lines.append("contradictions:")
-    shown_lines += [f"- {c['statement']}" for c in shown_con] or ["- (none)"]
-
-    turns = _transcript_rows(sid, turn_id, since_turn_id)
-    t_lines = []
-    for t in turns:
-        if mode == "accumulator" and since_turn_id is not None and t["id"] == _first_new(turns, since_turn_id):
-            t_lines.append("--- NEW TURNS SINCE THE LAST CHART/TODO PASS START HERE ---")
-        t_lines.append(f"[{t['speaker']}] {t['text']}")
-    transcript_block = "\n".join(t_lines) or "(no transcript yet)"
-
-    if mode == "urgent":
-        final = turns[-1] if turns else None
-        marker = (
-            f">>> THE TURN TO ANALYZE (turn {final['id']}, {final['speaker']}):\n"
-            f"\"{final['text']}\""
-            if final else ">>> (no turn found)"
+def interview_system(patient_name: str, questions: list[dict], record_digest: str) -> str:
+    q_lines = []
+    for qu in questions:
+        subs = "; ".join(qu["sub_questions"]) or "(none)"
+        q_lines.append(
+            f"QUESTION {qu['id']} (ask in this order): {qu['question']}\n"
+            f"  follow-up angles: {subs}\n"
+            f"  complete when: {qu['completeness_criteria']}"
         )
-    else:
-        marker = (
-            ">>> Process every turn after the NEW-TURNS marker above. Earlier turns are "
-            "context only — they were already processed in previous passes."
-        )
+    plan_text = "\n".join(q_lines)
+    return f"""You are a warm, plain-spoken care coordinator calling {patient_name} from her doctor's office for a routine pre-visit phone check-in before Monday's appointment. You are on the PHONE: everything you write is spoken aloud, so keep each turn SHORT (1-3 sentences), one question at a time, no jargon, no lists. Never diagnose, never alarm, never give medical advice.
 
-    return f"""== JOURNEY (today's visit; use these node ids) ==
-{journey_lines}
+WHAT THE OFFICE ALREADY KNOWS (digest — do not read this to the patient):
+{record_digest}
 
-== CHART SO FAR (all stations, today's visit) ==
-{chart_lines}
+YOUR INTERVIEW PLAN:
+{plan_text}
 
-== CURRENT TODOS ==
-{todo_lines}
-
-== ALREADY SHOWN (do not repeat any of these) ==
-{chr(10).join(shown_lines)}
-
-== TRANSCRIPT (this session, oldest first) ==
-{transcript_block}
-
-{marker}"""
+HOW TO WORK:
+- Open by saying who you are and why you're calling, confirm you're speaking with {patient_name}, then start with question 1.
+- After each patient reply, judge it against the current question's completeness criteria. If unmet, probe with ONE follow-up angle at a time. Hard cap: {PROBE_CAP} probes per question — then call record_answer with complete=false and move on.
+- When the criteria are met, call record_answer (summary_text = a clinical restatement of what she reported, complete=true), then move to the next question in the same breath — acknowledge briefly and ask it.
+- If she says something that contradicts the record or is absent from it entirely, call flag_new_finding with her verbatim words.
+- If she cannot answer a question ("you'll have to check when I come in"), call defer_question and move on.
+- When every question is answered or deferred: give safety-netting (call 911 for chest pain at rest lasting more than 10 minutes, sudden weakness or face drooping, trouble speaking, or the worst headache of her life), confirm Monday's visit, say a warm goodbye, and call end_call.
+- Tools are silent — the patient never hears them. Always pair a tool call with the next thing you SAY, except end_call which comes after your goodbye.
+- If she wanders, gently steer back. If she asks a medical question, warmly defer it to the doctor on Monday."""
 
 
-def _first_new(turns: list[dict], since_turn_id: int) -> int | None:
-    for t in turns:
-        if t["id"] > since_turn_id:
-            return t["id"]
-    return None
+# ------------------------------------------------------------------ compiler
+
+COMPILE_SYSTEM = """ROLE: Intake compiler. The user message carries the interview plan, the recorded answers, new findings from the call, the full call transcript, and the manual task list.
+
+Produce the clean pre-visit intake the treating clinician reads on Monday. Resolve the record's contradictions using what the patient said on the phone; keep the source documents as-is (they are the audit trail — you produce a curated view). Be concise, clinical, and concrete. Flag medication safety issues you can see (e.g. a drug contraindicated by a suspected condition). Markdown allowed inside the *_md fields (headings, tables, bold, checklists).
+
+OUTPUT SCHEMA:
+{"chief_complaint": "one or two complaints, comma-separated",
+ "hpi_md": "structured HPI per complaint: onset, location, duration, character, aggravating/relieving, radiation, timing, severity; plus any interval events the call surfaced",
+ "meds_reconciliation_md": "table: med | chart said | actual (per patient) | flags",
+ "resolved_contradictions_md": "each contradiction: what the record said vs what is actually true, one line each",
+ "open_items_md": "the manual specialist task checklist for the visit + anything the call could not resolve"}"""

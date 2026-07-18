@@ -1,147 +1,107 @@
-# DOC Demo Script — verbatim
+# DOC Demo Script v2 — "The chart that doesn't lie"
 
-**This script is the spec.** Seed data, guardrails, and prompts are built to make these exact
-lines land. Two role-players: **STAFF** (plays Dr. Zhang, Nurse Kim, and the imaging tech) and
-**PATIENT** (plays Maria Alvarez). One laptop, one mic, ~3 minutes.
+**This script is the acceptance test.** Seed data, prompts, and pacing constants exist to
+make these ~3 minutes land. Maria's verbatim phone lines live in `DEMO_CASE.md § 4` — the
+role-player performs from there; this file is the presenter's run of show.
 
-Patient: **Maria Alvarez, 58** — chest-pain follow-up. Seeded record in `SPEC.md § Seed data`.
+Cast: **PRESENTER** (drives the laptop, narrates) and **MARIA** (role-player with a phone,
+on speaker). One laptop, projector, internet. Backend on :5000, ngrok up, frontend on :5173.
 
-Trigger lines are marked. Say them close to verbatim — the guardrail and contradiction
-detection are tuned to them, and paraphrasing is fine but don't drop the key phrases
-(**"spreading to my left arm"**, **"taking the aspirin every day"**).
+## Pre-flight (before going on stage)
 
----
+```bash
+curl -X POST http://localhost:5000/api/dev/reset
+curl http://localhost:5000/health        # all keys loaded: claude, soniox, telnyx, livekit
+# ngrok must be running: ngrok http --url=thoroughly-liberal-mouse.ngrok-free.app 5000
+# Maria's phone number is seeded as patients.phone — verify it's the role-player's real phone.
+# FALLBACK: if phone/ngrok is dead, run transport "sim" + scripts/replay-demo.mjs (§ Fallback).
+```
 
-## Beat D — "Last week" (0:00–0:35)
+## Beat 1 — The rotten chart (~25 s)
 
-*Screen: Dr. Zhang's planning view.*
+Patient page for Maria Alvarez. Five documents on screen: GP summary, a covering
+internist's SOAP note, an ED discharge, a rambling urgent-care note, a pharmacy fill
+history.
 
-**PRESENTER:** "Last week, Maria Alvarez saw Dr. Zhang for new chest pain. Here's how that
-visit ended — Dr. Zhang writes what the *next* visit is for."
+> PRESENTER: "Maria sees her doctor Monday. Her chart says she's allergic to aspirin — and
+> that she takes aspirin every morning. It says she never smoked — and that she smokes half
+> a pack a day. Five documents, four authors, and they don't agree with each other. Every
+> clinic in the country has charts like this. DOC cleans them up — before the visit."
 
-**STAFF (as Dr. Zhang)** types (may be pre-typed; hit Generate live):
+Click **Clean Up Context**.
 
-> Follow-up in one week. Main question: has the chest pain progressed? If the pain radiates
-> to the arm, jaw, or back, or she reports numbness or shortness of breath — escalate: I want
-> a cardiology consult before any imaging. Confirm she's tolerating the daily aspirin (81mg);
-> she's had stomach trouble with NSAIDs before. Chest CT if the pain persists. Recheck BP —
-> if it's above 160/100, hold imaging and call me.
+## Beat 2 — The specialist panel (~40 s)
 
-*Expected: DOC fills the seeded journey (Nurse Intake → Imaging → Dr. Zhang) with per-node
-goals and numbered guardrails. Dr. Zhang clicks Confirm.*
+Run view, stages lighting up live. Triage picks the panel (expect: cardiology, neurology,
+general medicine); findings stream in per specialist.
 
-**PRESENTER:** "That intent normally dies in a free-text note. DOC carries it into the room."
+Point at, in order:
 
----
+1. An easy one — **C1**: aspirin allergy vs. daily aspirin, both quotes on the card.
+2. The subtle one — **C5**: *"the May note documents textbook exertional angina and then
+   calls it reflux — in the same note. Cardiology caught the note contradicting itself."*
+3. A gap card marked **can't ask the patient** — no ECG on file (**G1**): *"some things a
+   phone call can't answer — watch where those go."*
 
-## Beat A — Nurse intake, live voice (0:35–2:15)
+Then the interview plan streams in: questions with sub-questions and completeness criteria.
 
-*Screen: nurse's appointments list → click "Maria Alvarez" → patient page (brief, action
-items, journey line) → click **Start Session**. Mic is live from here.*
+> PRESENTER: "Nobody approves anything. It's already dialing her."
 
-The first spoken line anchors diarization: **first speaker = staff.** Turns strictly
-alternate from here — do not talk over each other.
+## Beat 3 — The call (~90 s)
 
-**NURSE:** "Hi Maria, I'm Nurse Kim — how are you doing today?"
+`call.status: dialing` → **Maria's phone rings on stage. She answers on speaker.**
 
-**PATIENT:** "I'm okay. The chest pain is still there, though. It comes and goes."
+MARIA performs from `DEMO_CASE.md § 4`: vague first answer, specifics only under
+follow-up. The agent drives; she answers whatever it asks. The stage path must hit:
 
-> *DOC: suggestion card — "Ask whether the pain has changed location or character since last
-> week" (reason: Dr. Zhang's goal #1).*
+| Moment | What the audience sees/hears |
+|---|---|
+| "My head hurts" → agent probes side/character/severity/onset | vague → **left temple, stabbing, 8/10, two days** appears in the answer panel (**A1**) |
+| "Is it like your usual migraines?" → *"No... other side, and it stabs"* | **C3 resolved** — new headache ≠ migraine |
+| "My chest feels funny" → probes → *"a fist... stairs... gone in five minutes... creeps into my jaw"* | **A2 + C5 resolved** — the GERD label falls apart live |
+| Aspirin question → *"the hives were from penicillin — somebody typed it in wrong years ago"* | **C1 resolved**, contradiction card flips to resolved |
+| Family history → *"My father died of a heart attack. He was 54. Nobody's ever asked me that before."* | **G4 — a fact in no document.** Pause. Let it land. |
+| Agent: "we'll need an ECG and to check your pupils when you're in" → *"You'll have to check when I come in, honey"* | manual tasks route to the humans (**G1/G2**) |
 
-**NURSE:** "Has the pain changed at all since last week — moved anywhere, or felt different?"
+Agent wraps with safety-netting; call ends itself. If time is dying, PRESENTER may end it:
+the run compiles with whatever was answered.
 
-**PATIENT:** "Actually, yeah — the past couple of days it's been **spreading to my left arm**."
-⚡ **GUARDRAIL TRIGGER (#1)**
+> PRESENTER (over the compile spinner): "Every answer was recorded by tool call,
+> mid-conversation. It kept probing until 'my head hurts' was specific enough for a
+> neurologist."
 
-> *DOC, within ~3s — the climax, give it a beat of silence:*
-> - *Red guardrail alert: "Dr. Zhang's guardrail: radiating pain → escalate. Cardiology
->   consult before imaging." citing the trigger verbatim.*
-> - *Suggestion: "Ask about numbness and shortness of breath now."*
-> - *Journey mutation proposal: "Insert **Cardiology consult** before Imaging?" [Accept]*
+## Beat 4 — Before / after (~25 s)
 
-**NURSE** clicks **Accept** — *the journey line visibly re-routes on screen.*
+`intake.ready` → payoff screen: five messy documents on the left, the compiled Pre-Visit
+Intake Brief on the right (`DEMO_CASE.md § 5` is the target shape).
 
-**NURSE:** "Okay, that's important — any numbness in that arm, or any shortness of breath?"
+Point at: two chief complaints with full HPI · the meds table — *"she stopped her blood
+pressure pill in April; her chart said 'well controlled'"* · the sumatriptan
+contraindication flag · the manual-task checklist for Monday's visit.
 
-**PATIENT:** "A little tingling in my fingers this morning. No trouble breathing."
+> PRESENTER: "Scribes document the visit. **DOC orchestrates it — starting before the
+> patient walks in.** Synthetic data, real pipeline, three minutes."
 
-> *DOC: chart updates append; to-do added for the Cardiology node ("Evaluate radiating pain
-> with finger paresthesia, onset ~2 days").*
+## Fallback — no phone (sim transport)
 
-**NURSE:** "Are you still taking your medications — the lisinopril and the aspirin?"
+Start the run with `{"transport": "sim"}` (dev toggle on the patient page). The identical
+pipeline runs; the call happens as text in the run view. Answer as Maria via:
 
-**PATIENT:** "The blood pressure pill, yes, every morning. The aspirin was bothering my
-stomach, so I stopped it — maybe two weeks ago." 🌱 **CONTRADICTION SEED**
+```bash
+node scripts/replay-demo.mjs <run_id>        # auto-answers from DEMO_CASE.md's script
+# or hand-drive one line:
+curl -X POST http://localhost:5000/api/dev/sim-answer -H "Content-Type: application/json" \
+     -d '{"call_id": 1, "text": "Oh - well, my head hurts, and my chest has been feeling funny."}'
+```
 
-> *DOC: chart update ("reports stopping aspirin ~2 wks ago, GI upset") + guardrail #3 flag
-> (aspirin non-adherence → flag to Dr. Zhang).*
+`scripts/replay-demo.mjs` answers the agent's questions from the role-play script
+(keyword-matched to the truth in `DEMO_CASE.md`), so the full run — findings, call,
+compiled intake — reproduces end-to-end with zero audio. It must stay in sync with
+`DEMO_CASE.md`.
 
-**NURSE:** "Got it. And this morning — did you take anything before coming in?"
+## Timing tuning
 
-**PATIENT:** "Just my usual pills. I've been **taking the aspirin every day** like Dr. Zhang
-said." ⚡ **CONTRADICTION TRIGGER**
-
-> *DOC: amber contradiction card, both sources cited verbatim — the in-session statement
-> ("the aspirin was bothering my stomach, so I stopped it") and the visit-N note (daily 81mg
-> aspirin prescribed). Suggested probe: "Ask when she last actually took an aspirin."*
-
-**NURSE:** "Just so I have it right — when did you last actually take an aspirin?"
-
-**PATIENT:** "…Honestly, it's been a couple of weeks. I didn't want Dr. Zhang to think I
-wasn't following the plan."
-
-> *DOC: chart update — "Confirmed: aspirin stopped ~2 weeks ago (GI upset); initially
-> misreported adherence."*
-
-**NURSE:** "Thanks for being honest — that's exactly what we need to know. Let me get your
-blood pressure." *(pause, mimes cuff)* "One forty-two over eighty-eight."
-
-> *DOC: vital appended; guardrail #4 not tripped (below 160/100), imaging not blocked.*
-
-**NURSE:** "All right — we're going to have cardiology take a look first, then imaging, and
-Dr. Zhang will see you after that."
-
-**NURSE** clicks **End Session**.
-
-> *DOC: Fable compiles — handoff briefs appear on the Cardiology and Imaging nodes;
-> the to-do list is reconciled (answered items closed, escalation items promoted).*
-
----
-
-## Beat C — Imaging (2:15–2:45)
-
-**PRESENTER:** "An hour later — cardiology has cleared her for imaging."
-*(Operator: mark the Cardiology node complete via the dev control, off-screen, before this.)*
-
-*Screen: imaging tech opens Maria's page. The brief shows the action items: "Radiating-pain
-escalation in effect. Prioritize views of the upper-left thoracic region."*
-
-**STAFF (as tech)** uploads the pre-selected CT slice.
-
-> *DOC: multimodal read appends findings to the chart, framed as "flagged for Dr. Zhang's
-> review" — never a diagnosis.*
-
----
-
-## Payoff — Dr. Zhang's screen (2:45–3:00)
-
-*Screen: Dr. Zhang's view of Maria — the straight-line journey with completed nodes, the
-accumulated chart grouped by station, the contradiction entry surviving into the handoff, and
-the compiled action items.*
-
-**PRESENTER:** "Every department saw what the last one learned, and what the doctor wanted
-checked. Scribes document the visit — **DOC orchestrates it.**"
-
----
-
-## Operator notes & contingencies
-
-- **Mic:** single laptop mic, role-players ~2ft away, patient slightly closer. Rehearse levels.
-- **Turn-taking:** strict alternation, full stop between speakers. Diarization is advisory;
-  alternation is authoritative — a diarization glitch is invisible if you don't overlap.
-- **H9 fallback (if end-of-turn detection is flaky):** operator presses the off-screen
-  "end patient turn" key after each PATIENT line. Invisible to judges.
-- **Beat D text** is pre-typed in the box before the demo starts; only Generate is clicked live.
-- **Backup:** screen recording of one clean run exists before demo day (Success Criteria).
-- **Disclaimer banner** visible in every view: synthetic data, not medical advice.
+Demo pacing constants live in `backend/config.py`: max plan questions for the call
+(`MAX_INTERVIEW_QUESTIONS`), probe cap per question, specialist timeout. If Beat 3 runs
+long in rehearsal, lower `MAX_INTERVIEW_QUESTIONS` before touching prompts — the
+orchestrator keeps the highest-severity questions.

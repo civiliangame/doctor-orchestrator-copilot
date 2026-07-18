@@ -17,77 +17,68 @@ _conn: sqlite3.Connection | None = None
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, dob TEXT NOT NULL,
-  summary_text TEXT NOT NULL
+  phone TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE IF NOT EXISTS visits (
-  id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL, date TEXT NOT NULL,
-  intent_text TEXT NOT NULL DEFAULT '', plan_confirmed INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS journey_nodes (
-  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL, station TEXT NOT NULL,
-  specialist_name TEXT NOT NULL, specialist_profile TEXT NOT NULL DEFAULT '',
-  goals_json TEXT NOT NULL DEFAULT '[]',
-  status TEXT NOT NULL DEFAULT 'pending',           -- done|active|pending
-  position INTEGER NOT NULL, sched_time TEXT NOT NULL DEFAULT ''
-);
-CREATE TABLE IF NOT EXISTS journey_edges (
-  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL,
-  from_node_id INTEGER NOT NULL, to_node_id INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS guardrails (
-  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL, num INTEGER NOT NULL,
-  condition_text TEXT NOT NULL, action_text TEXT NOT NULL,
-  proposed_insert_json TEXT                          -- NULL or {"station":..,"specialist_name":..,"specialist_profile":..,"before_station":..}
-);
-CREATE TABLE IF NOT EXISTS node_briefs (
-  id INTEGER PRIMARY KEY, node_id INTEGER NOT NULL, from_node_id INTEGER NOT NULL,
-  from_station TEXT NOT NULL, summary_md TEXT NOT NULL,
-  action_items_json TEXT NOT NULL DEFAULT '[]',      -- [{"text":..,"priority":..}]
-  created_ts TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-  id INTEGER PRIMARY KEY, node_id INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL,
+  title TEXT NOT NULL, doc_type TEXT NOT NULL, author TEXT NOT NULL,
+  date TEXT NOT NULL, content_md TEXT NOT NULL
+);  -- APPEND-ONLY: agents never rewrite the record (SPEC.md)
+CREATE TABLE IF NOT EXISTS runs (
+  id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'analyzing',  -- analyzing|planning|calling|compiling|done|failed
+  transport TEXT NOT NULL DEFAULT 'sim',     -- sim|telnyx
   started_ts TEXT NOT NULL, ended_ts TEXT
 );
-CREATE TABLE IF NOT EXISTS transcript_turns (
-  id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL,
-  speaker TEXT NOT NULL,                             -- staff|patient
-  text TEXT NOT NULL, ts TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'inject'              -- soniox|inject
+CREATE TABLE IF NOT EXISTS specialists (
+  id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL,
+  key TEXT NOT NULL, display_name TEXT NOT NULL, rationale TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'running'     -- running|done
 );
-CREATE TABLE IF NOT EXISTS suggestions (
-  id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL,
-  kind TEXT NOT NULL, text TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
-  priority TEXT NOT NULL DEFAULT 'normal', ts TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS findings (
+  id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL,
+  specialist_id INTEGER,                     -- NULL = discovered live on the call
+  kind TEXT NOT NULL,                        -- contradiction|gap|ambiguity
+  severity TEXT NOT NULL DEFAULT 'normal',   -- high|normal
+  title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+  quotes_json TEXT NOT NULL DEFAULT '[]',    -- [{"doc_title":..,"quote":..}]
+  patient_answerable INTEGER NOT NULL DEFAULT 1
 );
-CREATE TABLE IF NOT EXISTS guardrail_alerts (
-  id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, guardrail_id INTEGER NOT NULL,
-  triggered_by TEXT NOT NULL, action TEXT NOT NULL, ts TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS questions (
+  id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL,
+  finding_ids_json TEXT NOT NULL DEFAULT '[]',
+  ord INTEGER NOT NULL,
+  question TEXT NOT NULL, sub_questions_json TEXT NOT NULL DEFAULT '[]',
+  completeness_criteria TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending'     -- pending|asking|answered|deferred
 );
-CREATE TABLE IF NOT EXISTS contradictions (
-  id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL,
-  statement TEXT NOT NULL, conflicts_with TEXT NOT NULL,
-  severity TEXT NOT NULL DEFAULT 'note', suggested_probe TEXT NOT NULL DEFAULT '',
-  ts TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS specialist_tasks (
+  id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL, finding_id INTEGER NOT NULL,
+  for_specialist TEXT NOT NULL, instruction TEXT NOT NULL, why TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE IF NOT EXISTS chart_entries (
-  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL, node_id INTEGER NOT NULL,
-  ts TEXT NOT NULL, category TEXT NOT NULL, text TEXT NOT NULL
-);  -- APPEND-ONLY: no UPDATE or DELETE, ever (SPEC.md)
-CREATE TABLE IF NOT EXISTS todos (
-  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL,
-  created_by_node_id INTEGER NOT NULL, for_node_id INTEGER NOT NULL,
-  text TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal',
-  status TEXT NOT NULL DEFAULT 'open'                -- open|done
+CREATE TABLE IF NOT EXISTS calls (
+  id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL,
+  transport TEXT NOT NULL,                   -- sim|telnyx
+  telnyx_call_control_id TEXT,
+  status TEXT NOT NULL DEFAULT 'dialing',    -- dialing|active|ended
+  started_ts TEXT NOT NULL, ended_ts TEXT
 );
-CREATE TABLE IF NOT EXISTS journey_mutations (
-  id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, guardrail_id INTEGER NOT NULL,
-  description TEXT NOT NULL, insert_station TEXT NOT NULL,
-  insert_specialist_name TEXT NOT NULL DEFAULT '',
-  insert_specialist_profile TEXT NOT NULL DEFAULT '',
-  before_node_id INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'proposed',           -- proposed|accepted|dismissed
-  ts TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS call_turns (
+  id INTEGER PRIMARY KEY, call_id INTEGER NOT NULL,
+  speaker TEXT NOT NULL,                     -- agent|patient
+  text TEXT NOT NULL, ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS answers (
+  id INTEGER PRIMARY KEY, question_id INTEGER NOT NULL,
+  summary_text TEXT NOT NULL, complete INTEGER NOT NULL DEFAULT 1, ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS intakes (
+  id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL,
+  chief_complaint TEXT NOT NULL, hpi_md TEXT NOT NULL,
+  meds_reconciliation_md TEXT NOT NULL DEFAULT '',
+  resolved_contradictions_md TEXT NOT NULL DEFAULT '',
+  open_items_md TEXT NOT NULL DEFAULT '',
+  created_ts TEXT NOT NULL
 );
 """
 

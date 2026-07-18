@@ -1,119 +1,145 @@
-"""Seed data — the source of truth is DEMO_SCRIPT.md + SPEC.md § Seed data.
+"""Seeds the demo case from DEMO_CASE.md (§2 documents, verbatim).
 
-Everything here exists to make the scripted 3-minute demo land. The guardrail
-numbers, the aspirin note, and the prior-visit details are all referenced
-verbatim by the script's trigger lines — edit with care.
-
-The journey is seeded WITH goals and guardrails already in place so the demo
-survives even if Beat D (plan/generate) is skipped in a rehearsal; a live
-plan/confirm overwrites them.
+Runs at startup and on POST /api/dev/reset. The documents table is append-only
+demo data — the pipeline never edits it. The planted issues (C1-C5, G1-G4,
+A1-A3) live inside these texts; edit only in lockstep with DEMO_CASE.md.
 """
 
-import json
+from config import PATIENT_PHONE
+from db import ins, one, wipe_db
 
-from db import ins, now_iso, one
-
-# Hand-written patient summary — used VERBATIM as the orchestrator prompt block.
-MARIA_SUMMARY = """Maria Alvarez, 58. Hypertension x6 years, controlled on lisinopril 10 mg daily. \
-Borderline-high LDL (132 mg/dL, not on a statin). No diabetes. No prior cardiac events, no known CAD. \
-Former smoker, quit 2009.
-
-Last visit 2026-07-11 (Dr. Zhang, primary care): intermittent chest pain x2 weeks — pressure-like, \
-mostly with exertion, NOT radiating at that visit. No shortness of breath, no diaphoresis, no numbness. \
-BP 138/86, HR 78. Resting ECG unremarkable. STARTED ASPIRIN 81 MG DAILY at that visit. \
-History of stomach upset with NSAIDs (ibuprofen) — counseled to take aspirin with food. \
-Plan: one-week follow-up (today's visit), chest CT if pain persists, escalation criteria per guardrails."""
-
-INTENT_TEXT = """Follow-up in one week. Main question: has the chest pain progressed? If the pain radiates \
-to the arm, jaw, or back, or she reports numbness or shortness of breath — escalate: I want a cardiology \
-consult before any imaging. Confirm she's tolerating the daily aspirin (81mg); she's had stomach trouble \
-with NSAIDs before. Chest CT if the pain persists. Recheck BP — if it's above 160/100, hold imaging and call me."""
-
-CARDIOLOGY_INSERT = {
-    "station": "cardiology",
-    "specialist_name": "Dr. Osei",
-    "specialist_profile": "Cardiologist — urgent consult slot",
-    "before_station": "imaging",
+PATIENT = {
+    "name": "Maria Alvarez",
+    "dob": "1968-03-12",
+    # The number the telnyx transport dials — the role-player's real phone.
+    "phone": PATIENT_PHONE or "+15555550100",
 }
+
+DOCUMENTS = [
+    {
+        "title": "Patient Summary",
+        "doc_type": "summary",
+        "author": "Dr. R. Whitfield, Primary Care",
+        "date": "2026-07-10",
+        "content_md": (
+            "Maria is a 58 yo woman I have followed since 2019. Pleasant, works part-time at a "
+            "school cafeteria, lives with husband. Hypertension diagnosed 2015, **well controlled "
+            "on lisinopril 20 mg daily**, home readings \"fine\" per patient. Long history of "
+            "migraine headaches since her thirties — right-sided, throbbing, with the flashing "
+            "zigzag lights beforehand, responds to rest and OTC analgesia. Otherwise generally "
+            "healthy, **never smoker**, occasional glass of wine.\n\n"
+            "Recent months have been bumpy. ED visit in June for a bad headache (CT negative, dx "
+            "migraine), then an urgent care visit for some visual complaint — notes attached. She "
+            "called the office this week about her head and her chest; front desk booked her for "
+            "Monday 7/20. Would like to sort out what is actually going on, she is a poor "
+            "historian on the phone.\n\n"
+            "**Allergies: ASPIRIN — hives.** No other known allergies."
+        ),
+    },
+    {
+        "title": "Office Visit Note",
+        "doc_type": "visit_note",
+        "author": "Dr. A. Okafor, Internal Medicine (covering)",
+        "date": "2026-05-02",
+        "content_md": (
+            "**S:** 58F HTN f/u. Reports **occasional chest discomfort x few wks — comes on "
+            "climbing the stairs at home, goes away w/ rest after ~5 min**. No SOB, no "
+            "diaphoresis. Also \"some burning after big meals.\" Denies HA today.\n\n"
+            "**O:** BP 142/88 (single reading, R arm). HR 76 reg. Lungs CTA. CV: RRR, no exam "
+            "abnormality noted.\n\n"
+            "**A/P:**\n"
+            "1. **Chest discomfort — atypical, likely GERD given postprandial burning. Start "
+            "omeprazole 20 mg daily. RTC if worse.**\n"
+            "2. HTN — borderline today, cont lisinopril 20 mg, recheck next visit.\n\n"
+            "*No ECG performed this visit. No labs ordered.*"
+        ),
+    },
+    {
+        "title": "ED Discharge Summary",
+        "doc_type": "ed_discharge",
+        "author": "Dr. S. Patel, MD — Mercy General Hospital",
+        "date": "2026-06-20",
+        "content_md": (
+            "**Chief complaint:** Headache.\n\n"
+            "**HPI:** 58-year-old female presenting with **right-sided throbbing headache** with "
+            "nausea and light sensitivity since this morning, described as similar to prior "
+            "migraines but more intense.\n\n"
+            "**Workup:** CT head without contrast: no acute intracranial abnormality. Vitals "
+            "stable (BP 156/92 on arrival).\n\n"
+            "**Exam:** Alert and oriented x3, **neuro exam grossly intact**, ambulating without "
+            "difficulty.\n\n"
+            "**Social history:** **Smokes approx. 1/2 pack per day.** Denies alcohol excess.\n\n"
+            "**Disposition:** Diagnosed with migraine headache. Treated with IV fluids and "
+            "antiemetic with good relief. Discharged home in stable condition with **prescription "
+            "for sumatriptan 50 mg PO PRN migraine** and instructions to follow up with primary "
+            "care within one week."
+        ),
+    },
+    {
+        "title": "Urgent Care Visit Note",
+        "doc_type": "visit_note",
+        "author": "Dr. L. Chen, MedFirst Urgent Care",
+        "date": "2026-06-29",
+        "content_md": (
+            "Ms. Alvarez is a very pleasant 58-year-old lady who presents today at the urging of "
+            "her husband because, in her own words, **\"my vision went weird for a bit\"** two "
+            "days ago. She finds the episode difficult to characterize and I was likewise unable "
+            "to elicit a more precise description in the time available; it lasted \"maybe twenty "
+            "minutes or so\" and resolved on its own without residual deficit that she can "
+            "identify. She denies eye pain. Of note, she also mentions, almost in passing, that "
+            "**there was a moment \"last week\" where she \"couldn't find her words\" for a few "
+            "minutes**; this was not further characterized as the patient was in a hurry to pick "
+            "up her grandson.\n\n"
+            "She has a longstanding history of migraine with visual aura, and on balance I "
+            "suspect this represents **probable ocular migraine**. I reassured her at length and "
+            "advised follow-up with her primary care physician, sooner should symptoms recur. "
+            "Visual acuity was not formally tested today as the clinic's eye chart was in use; "
+            "**fundoscopic, pupillary, and visual field examination deferred to PCP**."
+        ),
+    },
+    {
+        "title": "Nurse Triage Phone Note",
+        "doc_type": "triage_note",
+        "author": "RN J. Morales",
+        "date": "2026-07-15",
+        "content_md": (
+            "Pt called office 10:42. States **\"my head hurts again, worse than usual\"** — "
+            "points to **left temple** per pt description. Also states **\"my chest feels "
+            "funny\"** when climbing the stairs to do laundry. Requesting appointment. Denies "
+            "fever.\n\n"
+            "Meds per pt over phone: **lisinopril \"I think so??\" (pt unsure if still taking)**, "
+            "omeprazole, sumatriptan as needed, **\"baby aspirin\" every morning**, Tylenol "
+            "sometimes.\n\n"
+            "Advised to call 911 for severe chest pain, weakness, or facial droop. Appt booked "
+            "2026-07-20 w/ Dr. Whitfield. Pt verbalized understanding."
+        ),
+    },
+    {
+        "title": "Pharmacy Fill History",
+        "doc_type": "pharmacy",
+        "author": "CarePoint Pharmacy #204",
+        "date": "2026-07-14",
+        "content_md": (
+            "| Medication | Sig | Last fill | Supply |\n"
+            "|---|---|---|---|\n"
+            "| Lisinopril 20 mg tab | 1 daily | **2026-01-15** | 90 days *(no refill since — "
+            "exhausted ~2026-04-15)* |\n"
+            "| Omeprazole 20 mg cap | 1 daily | 2026-06-30 | 30 days (prior fill 2026-05-02) |\n"
+            "| Sumatriptan 50 mg tab | 1 PO PRN migraine, max 2/day | 2026-06-21 | 9 tabs |\n\n"
+            "*No OTC products on file. No aspirin dispensed at this pharmacy.*"
+        ),
+    },
+]
 
 
 def seed_all() -> None:
     if one("SELECT id FROM patients LIMIT 1"):
         return  # already seeded
+    pid = ins("patients", **PATIENT)
+    for d in DOCUMENTS:
+        ins("documents", patient_id=pid, **d)
 
-    ts = now_iso()
-    patient_id = ins(
-        "patients", name="Maria Alvarez", dob="1968-03-12", summary_text=MARIA_SUMMARY
-    )
-    visit_id = ins(
-        "visits", patient_id=patient_id, date="2026-07-18",
-        intent_text=INTENT_TEXT, plan_confirmed=0,
-    )
 
-    nurse = ins(
-        "journey_nodes", visit_id=visit_id, station="nurse",
-        specialist_name="Nurse Kim",
-        specialist_profile="Intake nurse — vitals, symptom review, medication reconciliation",
-        goals_json=json.dumps([
-            "Assess chest pain progression since last week — especially radiation to arm/jaw/back, numbness, or shortness of breath",
-            "Verify daily aspirin 81mg adherence and stomach tolerance",
-            "Recheck blood pressure",
-        ]),
-        status="active", position=1, sched_time="09:00",
-    )
-    imaging = ins(
-        "journey_nodes", visit_id=visit_id, station="imaging",
-        specialist_name="Tech Rivera",
-        specialist_profile="CT imaging technician",
-        goals_json=json.dumps([
-            "Chest CT",
-            "Prioritize any regions flagged during intake",
-        ]),
-        status="pending", position=2, sched_time="10:30",
-    )
-    doctor = ins(
-        "journey_nodes", visit_id=visit_id, station="doctor",
-        specialist_name="Dr. Zhang",
-        specialist_profile="Primary care physician — Maria's attending",
-        goals_json=json.dumps([
-            "Review intake and imaging findings",
-            "Decide on medication escalation and cardiology follow-up",
-        ]),
-        status="pending", position=3, sched_time="13:00",
-    )
-    ins("journey_edges", visit_id=visit_id, from_node_id=nurse, to_node_id=imaging)
-    ins("journey_edges", visit_id=visit_id, from_node_id=imaging, to_node_id=doctor)
-
-    # Guardrail numbers are load-bearing: DEMO_SCRIPT.md and the worker prompts cite them.
-    ins("guardrails", visit_id=visit_id, num=1,
-        condition_text="Chest pain radiating to the arm, jaw, or back",
-        action_text="Escalate: cardiology consult before any imaging",
-        proposed_insert_json=json.dumps(CARDIOLOGY_INSERT))
-    ins("guardrails", visit_id=visit_id, num=2,
-        condition_text="New numbness or shortness of breath",
-        action_text="Escalate: cardiology consult before any imaging (same escalation as #1)",
-        proposed_insert_json=json.dumps(CARDIOLOGY_INSERT))
-    ins("guardrails", visit_id=visit_id, num=3,
-        condition_text="Aspirin non-adherence or GI side effects",
-        action_text="Flag to Dr. Zhang before continuing the aspirin plan",
-        proposed_insert_json=None)
-    ins("guardrails", visit_id=visit_id, num=4,
-        condition_text="Blood pressure above 160/100",
-        action_text="Hold imaging; call Dr. Zhang",
-        proposed_insert_json=None)
-
-    # Dr. Zhang's standing brief for the intake nurse — this is what renders BIG
-    # on the nurse's patient page before the session starts.
-    ins("node_briefs", node_id=nurse, from_node_id=doctor, from_station="doctor",
-        summary_md=(
-            "One-week follow-up for **intermittent exertional chest pain** (onset ~3 weeks ago). "
-            "Last week: pressure-like, non-radiating, ECG unremarkable, BP 138/86. "
-            "Started **aspirin 81mg daily** — she has a history of stomach trouble with NSAIDs. "
-            "Escalation criteria are active as guardrails #1–#4."
-        ),
-        action_items_json=json.dumps([
-            {"text": "Ask about pain progression — radiation to arm/jaw/back, numbness, shortness of breath", "priority": "high"},
-            {"text": "Verify daily aspirin 81mg adherence and stomach tolerance", "priority": "high"},
-            {"text": "Recheck blood pressure", "priority": "normal"},
-        ]),
-        created_ts=ts)
+def reset_and_seed() -> None:
+    wipe_db()
+    seed_all()

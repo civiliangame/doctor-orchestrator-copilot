@@ -1,169 +1,101 @@
-"""End-of-session compile (Fable) — SPEC.md § End-of-session compile.
+"""Stage 5: the intake compiler — the payoff artifact (SPEC.md § Pipeline).
 
-One llm call producing a handoff brief per outgoing edge + todo reconciliation.
-The demo must never hang on End Session: any failure still ends the session,
-flips node statuses, and broadcasts compile.done with empty briefs.
+Fable (Opus fallback). Source documents are untouched (append-only audit
+trail); the intake is a curated view. Never leaves the run hanging: any
+failure still produces a minimal intake so the demo reaches the payoff screen.
 """
 
-import asyncio
 import logging
-import json
 
 import events
-from config import MODEL_FABLE, MODEL_FABLE_FALLBACK
-from db import ex, ins, jloads, now_iso, one, q
+import serialize
+from config import MODEL_FABLE
+from db import ins, now_iso, one, q
 from llm import block, cached_block
 
-from orchestrator import prompts, shapes, tick, workers
+from orchestrator import prompts
 from orchestrator.llm_call import complete_json
 
-log = logging.getLogger("doc.orchestrator")
+log = logging.getLogger("doc.compile")
 
 
-def _successor_nodes(node: dict) -> list[dict]:
-    rows = q(
-        "SELECT n.* FROM journey_edges e JOIN journey_nodes n ON e.to_node_id=n.id"
-        " WHERE e.from_node_id=? ORDER BY n.position",
-        (node["id"],),
+async def compile_intake(run_id: int) -> dict:
+    answers = q(
+        """SELECT a.*, qu.question FROM answers a
+           JOIN questions qu ON qu.id = a.question_id
+           WHERE qu.run_id=? ORDER BY a.ts""",
+        (run_id,),
     )
-    if rows:
-        return rows
-    # Fallback for a linear journey whose edges weren't rerouted: next by position.
-    nxt = one(
-        "SELECT * FROM journey_nodes WHERE visit_id=? AND position>? ORDER BY position LIMIT 1",
-        (node["visit_id"], node["position"]),
+    turns = q(
+        """SELECT ct.* FROM call_turns ct JOIN calls c ON c.id = ct.call_id
+           WHERE c.run_id=? ORDER BY ct.id""",
+        (run_id,),
     )
-    return [nxt] if nxt else []
+    new_findings = q(
+        "SELECT * FROM findings WHERE run_id=? AND specialist_id IS NULL", (run_id,)
+    )
+    tasks = q("SELECT * FROM specialist_tasks WHERE run_id=? ORDER BY id", (run_id,))
+    deferred = q(
+        "SELECT * FROM questions WHERE run_id=? AND status IN ('deferred','pending','asking')",
+        (run_id,),
+    )
 
+    answer_lines = "\n".join(
+        f"- Q: {a['question']}\n  A ({'complete' if a['complete'] else 'incomplete'}): {a['summary_text']}"
+        for a in answers
+    ) or "(no answers recorded)"
+    new_lines = "\n".join(
+        f"- [{f['kind']}] {f['title']}: {f['detail']}" for f in new_findings
+    ) or "(none)"
+    task_lines = "\n".join(
+        f"- [{t['for_specialist']}] {t['instruction']} ({t['why']})" for t in tasks
+    ) or "(none)"
+    deferred_lines = "\n".join(f"- {d['question']}" for d in deferred) or "(none)"
+    transcript = "\n".join(f"{t['speaker'].upper()}: {t['text']}" for t in turns)
 
-def _compile_user_message(ctx: dict, successors: list[dict]) -> str:
-    sid, vid = ctx["session"]["id"], ctx["visit"]["id"]
-    next_lines = "\n".join(
-        f"node {n['id']}: {n['station']} — {n['specialist_name']} ({n['specialist_profile']});"
-        f" goals: {', '.join(jloads(n['goals_json'], [])) or '(none)'}"
-        for n in successors
-    ) or "(none — end of journey)"
+    user = f"""RECORDED ANSWERS:
+{answer_lines}
 
-    turns = q("SELECT * FROM transcript_turns WHERE session_id=? ORDER BY id", (sid,))
-    transcript = "\n".join(f"[{t['speaker']}] {t['text']}" for t in turns) or "(empty)"
+NEW FACTS SURFACED ON THE CALL (absent from or contradicting the record):
+{new_lines}
 
-    chart = q("SELECT * FROM chart_entries WHERE visit_id=? AND node_id=? ORDER BY id",
-              (vid, ctx["node"]["id"]))
-    chart_lines = "\n".join(f"[{c['category']}] {c['text']}" for c in chart) or "(none)"
+MANUAL SPECIALIST TASKS FOR THE VISIT:
+{task_lines}
 
-    alerts = q(
-        "SELECT g.num, g.condition_text, a.triggered_by, a.action FROM guardrail_alerts a"
-        " JOIN guardrails g ON a.guardrail_id=g.id WHERE a.session_id=? ORDER BY a.id", (sid,))
-    alert_lines = "\n".join(
-        f"#{a['num']} ({a['condition_text']}): {a['triggered_by']} -> {a['action']}"
-        for a in alerts) or "(none)"
+QUESTIONS NOT RESOLVED ON THE CALL:
+{deferred_lines}
 
-    cons = q("SELECT * FROM contradictions WHERE session_id=? ORDER BY id", (sid,))
-    con_lines = "\n".join(
-        f"[{c['severity']}] \"{c['statement']}\" vs \"{c['conflicts_with']}\""
-        for c in cons) or "(none)"
-
-    nodes = q("SELECT * FROM journey_nodes WHERE visit_id=? ORDER BY position", (vid,))
-    station_by_node = {n["id"]: n["station"] for n in nodes}
-    todos = q("SELECT * FROM todos WHERE visit_id=? ORDER BY id", (vid,))
-    todo_lines = "\n".join(
-        f"todo-{t['id']} [{t['status']}, {t['priority']}] for node {t['for_node_id']}"
-        f" ({station_by_node.get(t['for_node_id'], '?')}): {t['text']}"
-        for t in todos) or "(none)"
-    journey_lines = "\n".join(
-        f"node {n['id']} [{n['status']}]: {n['station']} — {n['specialist_name']}"
-        for n in nodes)
-
-    return f"""== NEXT NODES (write exactly one brief per node below) ==
-{next_lines}
-
-== JOURNEY ==
-{journey_lines}
-
-== FULL SESSION TRANSCRIPT ==
+FULL CALL TRANSCRIPT:
 {transcript}
 
-== CHART ENTRIES RECORDED THIS SESSION ==
-{chart_lines}
+Compile the pre-visit intake. JSON only."""
 
-== GUARDRAIL ALERTS FIRED THIS SESSION ==
-{alert_lines}
-
-== CONTRADICTIONS FLAGGED THIS SESSION ==
-{con_lines}
-
-== CURRENT TODOS (reconcile these) ==
-{todo_lines}"""
-
-
-async def compile_session(session_id: int) -> None:
-    ctx = shapes.load_ctx(session_id)
-    node, visit = ctx["node"], ctx["visit"]
-    ts = now_iso()
-    if not ctx["session"]["ended_ts"]:
-        ex("UPDATE sessions SET ended_ts=? WHERE id=?", (ts, session_id))
-    await events.broadcast(session_id, "session.compile.started", {})
-
-    successors = _successor_nodes(node)
-    system = [cached_block(prompts.session_prefix(ctx)), block(prompts.COMPILE_SYSTEM)]
-    user = _compile_user_message(ctx, successors)
-
-    brief_shapes: list[dict] = []
     try:
-        try:
-            out = await complete_json(MODEL_FABLE, system, user, max_tokens=4000)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception("Fable compile failed, retrying once on %s", MODEL_FABLE_FALLBACK)
-            out = await complete_json(MODEL_FABLE_FALLBACK, system, user, max_tokens=4000)
-
-        # Persist briefs (one per outgoing edge / listed successor).
-        valid_ids = {n["id"]: n for n in successors}
-        for b in out.get("briefs") or []:
-            node_id = b.get("node_id")
-            if node_id not in valid_ids:
-                continue
-            summary = (b.get("summary_md") or "").strip()
-            if not summary:
-                continue
-            items = [
-                {"text": (i.get("text") or "").strip(),
-                 "priority": i.get("priority") if i.get("priority") in ("high", "normal") else "normal"}
-                for i in (b.get("action_items") or []) if (i.get("text") or "").strip()
-            ]
-            bid = ins("node_briefs", node_id=node_id, from_node_id=node["id"],
-                      from_station=node["station"], summary_md=summary,
-                      action_items_json=json.dumps(items), created_ts=now_iso())
-            row = one("SELECT * FROM node_briefs WHERE id=?", (bid,))
-            brief_shapes.append(shapes.brief_shape(row))
-
-        # Apply todo reconciliation (broadcasts todo.update per op).
-        await workers.apply_todo_ops(ctx, out.get("todo_ops") or [])
-    except asyncio.CancelledError:
-        raise
+        out = await complete_json(
+            MODEL_FABLE,
+            [cached_block(prompts.corpus_prefix(run_id)), block(prompts.COMPILE_SYSTEM)],
+            user,
+            max_tokens=4000,
+        )
     except Exception:
-        log.exception("compile_session degraded (session=%s) — ending session anyway", session_id)
-        await events.broadcast(session_id, "error", {
-            "code": "compile_failed",
-            "message": "End-of-session compile failed; session ended without briefs.",
-        })
+        log.exception("compiler failed (run=%s) — writing minimal intake", run_id)
+        out = {
+            "chief_complaint": "See recorded answers",
+            "hpi_md": answer_lines,
+            "meds_reconciliation_md": "",
+            "resolved_contradictions_md": "",
+            "open_items_md": task_lines,
+        }
 
-    # Flip node statuses regardless of compile success.
-    ex("UPDATE journey_nodes SET status='done' WHERE id=?", (node["id"],))
-    pending = [n for n in _successor_nodes(node)
-               if one("SELECT status FROM journey_nodes WHERE id=?", (n["id"],))["status"] == "pending"]
-    if pending:
-        nxt = min(pending, key=lambda n: n["position"])
-        ex("UPDATE journey_nodes SET status='active' WHERE id=?", (nxt["id"],))
-
-    await events.broadcast(session_id, "journey.updated", shapes.journey_shape(visit["id"]))
-    todos = q("SELECT * FROM todos WHERE visit_id=? ORDER BY id", (visit["id"],))
-    await events.broadcast(session_id, "session.compile.done", {
-        "briefs": brief_shapes,
-        "todos": [shapes.todo_shape(t) for t in todos],
-    })
-    await events.broadcast(session_id, "session.ended", {})
-
-    prompts.clear_session_prefix(session_id)
-    tick.drop_state(session_id)
+    iid = ins(
+        "intakes", run_id=run_id,
+        chief_complaint=str(out.get("chief_complaint", "")),
+        hpi_md=str(out.get("hpi_md", "")),
+        meds_reconciliation_md=str(out.get("meds_reconciliation_md", "")),
+        resolved_contradictions_md=str(out.get("resolved_contradictions_md", "")),
+        open_items_md=str(out.get("open_items_md", "")),
+        created_ts=now_iso(),
+    )
+    row = one("SELECT * FROM intakes WHERE id=?", (iid,))
+    await events.broadcast(run_id, "intake.ready", serialize.intake(row))
+    return row
