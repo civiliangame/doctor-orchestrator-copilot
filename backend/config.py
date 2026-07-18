@@ -23,6 +23,7 @@ MODEL_FABLE_FALLBACK = "claude-opus-4-8"  # if the account lacks Fable access
 
 DB_PATH = BACKEND / "doc.sqlite3"
 SEED_IMAGES_DIR = BACKEND / "seed" / "images"
+PATIENTS_DIR = BACKEND / "seed" / "patients"   # per-patient markdown chart files
 
 PATIENT_TURN_DEBOUNCE_MS = 900   # SPEC.md § Turn pipeline
 TRANSCRIPT_CONTEXT_TURNS = 20    # trim to 10 if the 3s budget is blown

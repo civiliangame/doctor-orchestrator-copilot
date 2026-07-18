@@ -11,7 +11,8 @@ plan/confirm overwrites them.
 
 import json
 
-from db import ins, now_iso, one
+from config import PATIENTS_DIR
+from db import ex, ins, now_iso, one
 
 # Hand-written patient summary — used VERBATIM as the orchestrator prompt block.
 MARIA_SUMMARY = """Maria Alvarez, 58. Hypertension x6 years, controlled on lisinopril 10 mg daily. \
@@ -38,12 +39,25 @@ CARDIOLOGY_INSERT = {
 
 
 def seed_all() -> None:
-    if one("SELECT id FROM patients LIMIT 1"):
-        return  # already seeded
+    from orchestrator import chart_md
+
+    if one("SELECT id FROM patients LIMIT 1") is None:
+        _seed_maria()
+    else:
+        # Databases seeded before the markdown chart bridge: link Maria to her file.
+        ex("UPDATE patients SET md_file=? WHERE name='Maria Alvarez' AND md_file=''",
+           (chart_md.DEMO_MD_FILE,))
+    seed_dataset_patients()
+    chart_md.ensure_demo_patient_file()
+
+
+def _seed_maria() -> None:
+    from orchestrator import chart_md
 
     ts = now_iso()
     patient_id = ins(
-        "patients", name="Maria Alvarez", dob="1968-03-12", summary_text=MARIA_SUMMARY
+        "patients", name="Maria Alvarez", dob="1968-03-12", summary_text=MARIA_SUMMARY,
+        md_file=chart_md.DEMO_MD_FILE,
     )
     visit_id = ins(
         "visits", patient_id=patient_id, date="2026-07-18",
@@ -123,3 +137,49 @@ def seed_all() -> None:
     from orchestrator import pcm
     pcm.derive_required_slots(visit_id)
     pcm.seed_context(visit_id)
+
+
+def seed_dataset_patients() -> None:
+    """One patient + visit + minimal nurse->doctor journey per entry in
+    seed/patients/index.json. Idempotent per patient (keyed on md_file), so new
+    dataset files are picked up on restart without reseeding. The PCM for these
+    visits is NOT seeded here — chart_md.sync_from_markdown ingests each patient's
+    markdown file (LLM extraction) when their first session starts."""
+    index_path = PATIENTS_DIR / "index.json"
+    if not index_path.exists():
+        return
+    roster = json.loads(index_path.read_text(encoding="utf-8")).get("patients", [])
+    for i, p in enumerate(roster):
+        if one("SELECT id FROM patients WHERE md_file=?", (p["file"],)):
+            continue
+        patient_id = ins(
+            "patients", name=p["name"], dob=p["birth_date"],
+            summary_text=p["summary_text"], md_file=p["file"],
+        )
+        visit_id = ins(
+            "visits", patient_id=patient_id, date=p["visit_date"],
+            intent_text="", plan_confirmed=0,
+        )
+        sched = f"{9 + i // 4:02d}:{(i % 4) * 15:02d}"
+        nurse = ins(
+            "journey_nodes", visit_id=visit_id, station="nurse",
+            specialist_name="Nurse Kim",
+            specialist_profile="Intake nurse — vitals, symptom review, medication reconciliation",
+            goals_json=json.dumps([
+                f"Intake for: {p['visit_title']}",
+                "Record vitals and current symptoms",
+                "Reconcile current medications",
+            ]),
+            status="active", position=1, sched_time=sched,
+        )
+        doctor = ins(
+            "journey_nodes", visit_id=visit_id, station="doctor",
+            specialist_name="Attending physician",
+            specialist_profile="Attending — reviews intake findings and sets the plan",
+            goals_json=json.dumps([
+                "Review intake findings",
+                f"Address: {p['visit_title']}",
+            ]),
+            status="pending", position=2, sched_time="",
+        )
+        ins("journey_edges", visit_id=visit_id, from_node_id=nurse, to_node_id=doctor)

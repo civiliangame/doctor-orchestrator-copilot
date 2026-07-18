@@ -87,6 +87,13 @@ async def _acc_loop(session_id: int) -> None:
         since = st.acc_done_turn
         try:
             ctx = load_ctx(session_id)
+            # Continuous read: pick up external edits to the patient's markdown
+            # chart file before this pass. Cheap (hash check) unless it changed.
+            try:
+                from orchestrator import chart_md
+                await chart_md.sync_from_markdown(ctx["visit"]["id"], session_id=session_id)
+            except Exception:
+                log.exception("chart_md sync failed in accumulator pass (session=%s)", session_id)
             await asyncio.gather(
                 *(workers.run_worker(ctx, name, target, since_turn_id=since)
                   for name in workers.ACCUMULATOR_WORKERS)

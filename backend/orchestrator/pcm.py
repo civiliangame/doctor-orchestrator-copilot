@@ -17,6 +17,11 @@ Two design commitments enforced here:
    who they are, when, whether it came from the patient, whether it was pulled from
    live speech vs typed vs seeded, the verbatim quote, and the model (if inferred).
    The slot's `current_ledger_id` points at the row that justifies its present value.
+
+The PCM is also kept in continuous sync with the patient's markdown chart file in
+seed/patients (see orchestrator/chart_md.py): the file is ingested into slots at
+session start / when it changes on disk, and every live contribution recorded here
+is appended back to the file with its provenance.
 """
 
 from db import ins, now_iso, one, q
@@ -115,6 +120,20 @@ def derive_required_slots(visit_id: int) -> None:
                 required=1, why_required=why, updated_ts=now_iso())
 
 
+def ensure_slot(visit_id: int, key: str, label: str, category: str = "history",
+                why_required: str = "", required: int = 1) -> dict:
+    """Create the slot if it does not exist yet (used by the markdown chart ingest,
+    which discovers non-cardiac slots the templates never derived). Existing slots
+    are returned untouched — labels set by derive_required_slots win."""
+    existing = one("SELECT * FROM context_slots WHERE visit_id=? AND key=?", (visit_id, key))
+    if existing:
+        return existing
+    sid = ins("context_slots", visit_id=visit_id, key=key, label=label, category=category,
+              status="missing", value="", confidence=0.0, required=required,
+              why_required=why_required, updated_ts=now_iso())
+    return one("SELECT * FROM context_slots WHERE id=?", (sid,))
+
+
 def seed_context(visit_id: int) -> None:
     """Fill slots with what the seeded record already establishes, each as a
     provenance-tagged ledger entry. Only runs when the ledger is empty for the visit."""
@@ -171,7 +190,16 @@ def record_contribution(
     from db import ex
     ex("UPDATE context_slots SET value=?, status=?, confidence=?, current_ledger_id=?, updated_ts=? "
        "WHERE id=?", (value, status, confidence, ledger_id, now_iso(), slot["id"]))
-    return one("SELECT * FROM context_slots WHERE id=?", (slot["id"],))
+    fresh = one("SELECT * FROM context_slots WHERE id=?", (slot["id"],))
+
+    # Mirror every LIVE belief change into the patient's markdown chart file.
+    # Seed-sourced contributions are skipped: they came FROM the record/file.
+    if source_kind != "seed":
+        from orchestrator import chart_md  # local import: chart_md imports pcm
+        chart_md.append_update(
+            visit_id, fresh, one("SELECT * FROM context_ledger WHERE id=?", (ledger_id,))
+        )
+    return fresh
 
 
 def turn_provenance(turn: dict, ctx: dict, model: str = "") -> dict:

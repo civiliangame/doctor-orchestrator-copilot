@@ -17,7 +17,8 @@ _conn: sqlite3.Connection | None = None
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, dob TEXT NOT NULL,
-  summary_text TEXT NOT NULL
+  summary_text TEXT NOT NULL,
+  md_file TEXT NOT NULL DEFAULT ''                   -- markdown chart file in seed/patients ('' = none)
 );
 CREATE TABLE IF NOT EXISTS visits (
   id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL, date TEXT NOT NULL,
@@ -128,6 +129,13 @@ CREATE TABLE IF NOT EXISTS context_ledger (
   raw_quote TEXT NOT NULL DEFAULT '',                -- verbatim supporting text (the citation)
   ts TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chart_files (
+  id INTEGER PRIMARY KEY, visit_id INTEGER NOT NULL UNIQUE,
+  path TEXT NOT NULL,
+  content_hash TEXT NOT NULL DEFAULT '',             -- hash of the file MINUS the DOC-managed section
+  last_synced_ts TEXT NOT NULL DEFAULT '',           -- last read (markdown -> PCM ingest)
+  last_written_ts TEXT NOT NULL DEFAULT ''           -- last append (PCM -> markdown)
+);
 """
 
 
@@ -180,6 +188,10 @@ def init_db() -> None:
     with _lock:
         conn().executescript(SCHEMA)
         conn().commit()
+    # Migration for databases created before the markdown chart bridge.
+    cols = [r["name"] for r in q("PRAGMA table_info(patients)")]
+    if "md_file" not in cols:
+        ex("ALTER TABLE patients ADD COLUMN md_file TEXT NOT NULL DEFAULT ''")
 
 
 def wipe_db() -> None:

@@ -5,6 +5,7 @@ router also owns the events websocket, which lives at /ws/... per the contract.
 """
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -26,6 +27,8 @@ from routes.core import (
     turn,
 )
 
+log = logging.getLogger("doc.api")
+
 router = APIRouter(route_class=ContractRoute)
 
 
@@ -46,6 +49,14 @@ async def create_session(body: SessionCreateBody):
             "start on the 'active' journey node",
         )
     session_id = ins("sessions", node_id=body.node_id, started_ts=now_iso())
+    # Visit-start read: fold the patient's markdown chart file into the PCM.
+    # First session on a dataset patient runs the LLM extraction here; after
+    # that it is a cheap hash check (and re-ingests only if the file changed).
+    try:
+        from orchestrator import chart_md
+        await chart_md.sync_from_markdown(node["visit_id"], session_id=session_id)
+    except Exception:
+        log.exception("chart_md sync failed at session start (node=%s)", body.node_id)
     return {
         "session_id": session_id,
         "events_url": f"ws://localhost:8000/ws/session/{session_id}/events",
