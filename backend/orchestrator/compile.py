@@ -75,7 +75,7 @@ Compile the pre-visit intake. JSON only."""
             MODEL_FABLE,
             [cached_block(prompts.corpus_prefix(run_id)), block(prompts.COMPILE_SYSTEM)],
             user,
-            max_tokens=4000,
+            max_tokens=8000,  # Fable: always-on thinking spends from this budget too
         )
     except Exception:
         log.exception("compiler failed (run=%s) — writing minimal intake", run_id)

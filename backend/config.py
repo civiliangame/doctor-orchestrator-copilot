@@ -46,5 +46,5 @@ DB_PATH = BACKEND / "doc.sqlite3"
 # Pipeline pacing (SPEC.md § Latency budgets, DEMO_SCRIPT.md § Timing tuning)
 MAX_INTERVIEW_QUESTIONS = 8    # orchestrator keeps the highest-severity questions
 PROBE_CAP = 3                  # follow-ups per question before moving on
-SPECIALIST_TIMEOUT_S = 25      # skip specialist stragglers, log it
+SPECIALIST_TIMEOUT_S = 60      # skip specialist stragglers, log it
 UTTERANCE_DEBOUNCE_MS = 900    # phone: silence after a Soniox final = end of utterance

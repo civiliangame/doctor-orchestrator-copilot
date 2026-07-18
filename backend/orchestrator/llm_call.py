@@ -65,10 +65,18 @@ async def complete_json(
     try:
         return extract_json(raw)
     except (ValueError, json.JSONDecodeError):
-        retry = messages + [
-            {"role": "assistant", "content": raw},
-            {"role": "user", "content": "That was not valid JSON. Reply with ONLY the JSON object, no prose, no fences."},
-        ]
-        resp = await _create(model, system, retry, max_tokens)
+        if resp.stop_reason == "max_tokens":
+            # Truncated mid-JSON: same prompt, double the budget.
+            log.warning("JSON truncated at max_tokens=%s (model=%s) — retrying at 2x",
+                        max_tokens, model)
+            resp = await _create(model, system, messages, max_tokens * 2)
+        else:
+            log.warning("JSON parse failed (model=%s stop=%s len=%s) — reprompting",
+                        model, resp.stop_reason, len(raw))
+            retry = messages + [
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": "That was not valid JSON. Reply with ONLY the JSON object, no prose, no fences."},
+            ]
+            resp = await _create(model, system, retry, max_tokens)
         raw = "".join(b.text for b in resp.content if b.type == "text")
         return extract_json(raw)

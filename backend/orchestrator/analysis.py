@@ -61,7 +61,7 @@ async def _run_specialist(run_id: int, prefix: dict, spec: dict) -> None:
                 MODEL_SONNET,
                 [prefix, block(prompts.specialist_system(spec["display_name"], spec["rationale"]))],
                 prompts.SPECIALIST_USER,
-                max_tokens=2000,
+                max_tokens=3500,
             ),
             timeout=SPECIALIST_TIMEOUT_S,
         )

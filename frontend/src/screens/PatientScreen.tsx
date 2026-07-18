@@ -1,276 +1,199 @@
-// Screen 3 — patient page. Doubles as the final payoff view (Dr. Zhang at
-// journey end): briefs + action items render BIG, the chart accumulates by
-// station with contradictions surviving in amber. Beat C's imaging upload
-// also lives here (only when the viewing node is the imaging station).
+// Screen 1 (the rotten chart + Clean Up Context) and screen 3 (before/after payoff).
+// One screen, two layouts: when latest_intake exists we split before | after.
 
 import { useCallback, useEffect, useState } from "react";
-import type { ReactNode } from "react";
-import { api } from "../api";
-import type { ChartEntry, PatientPage, Station } from "../types";
-import { JourneyTimeline } from "../components/JourneyTimeline";
+import { navigate } from "../App";
+import { api, ApiError } from "../api";
+import { Markdown } from "../markdown";
+import type { CallTransport, Document, Intake, PatientPage, SpecialistTask } from "../types";
 
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-// Minimal markdown for brief bodies: **bold** and line breaks only.
-function renderMd(md: string): ReactNode {
-  return md.split("\n").map((line, i) => (
-    <span key={i}>
-      {line
-        .split(/\*\*(.+?)\*\*/g)
-        .map((part, j) => (j % 2 === 1 ? <strong key={j}>{part}</strong> : part))}
-      <br />
-    </span>
-  ));
-}
-
-// Group by node_station in order of first appearance, chronological within.
-function groupChart(entries: ChartEntry[]): { station: Station; entries: ChartEntry[] }[] {
-  const sorted = [...entries].sort((a, b) => a.ts.localeCompare(b.ts));
-  const groups: { station: Station; entries: ChartEntry[] }[] = [];
-  const byStation = new Map<Station, ChartEntry[]>();
-  for (const e of sorted) {
-    let bucket = byStation.get(e.node_station);
-    if (!bucket) {
-      bucket = [];
-      byStation.set(e.node_station, bucket);
-      groups.push({ station: e.node_station, entries: bucket });
-    }
-    bucket.push(e);
-  }
-  return groups;
-}
-
-export function PatientScreen({
-  patientId,
-  nodeId,
-  station,
-}: {
-  patientId: number;
-  nodeId: number;
-  station: Station;
-}) {
-  const [data, setData] = useState<PatientPage | null>(null);
-  const [chart, setChart] = useState<ChartEntry[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  // Imaging upload (Beat C)
-  const [file, setFile] = useState<File | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadNote, setUploadNote] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const res = await api.patient(patientId, nodeId);
-      setData(res);
-      setChart(res.chart);
-    } catch (e) {
-      setLoadError(errMsg(e));
-    }
-  }, [patientId, nodeId]);
-
-  useEffect(() => {
-    setData(null);
-    void load();
-  }, [load]);
-
-  if (loadError) {
-    return (
-      <div>
-        <div className="error-banner">{loadError}</div>
-        <button onClick={() => void load()}>Retry</button>
+function DocumentCard({ doc, index }: { doc: Document; index: number }) {
+  return (
+    <article className="doc-card card-in" style={{ animationDelay: `${index * 60}ms` }}>
+      <header className="doc-head">
+        <h3 className="doc-title">{doc.title}</h3>
+        <span className="doc-date">{doc.date}</span>
+      </header>
+      <div className="doc-author">{doc.author}</div>
+      <div className="doc-body">
+        <Markdown text={doc.content_md} />
       </div>
-    );
-  }
-  if (!data) {
-    return (
-      <p className="muted">
-        <span className="spin" /> Loading patient…
-      </p>
-    );
-  }
+    </article>
+  );
+}
 
-  const { patient, visit, journey, guardrails, briefs, todos } = data;
-  const viewingNode = journey.nodes.find((n) => n.id === nodeId);
-  const openTodos = todos.filter((t) => t.status === "open");
+function IntakePanel({ intake }: { intake: Intake }) {
+  return (
+    <article className="intake-card card-in">
+      <div className="intake-kicker">Pre-Visit Intake Brief</div>
+      <h3 className="intake-cc">{intake.chief_complaint}</h3>
+      <section className="intake-section">
+        <h4>History of Present Illness</h4>
+        <Markdown text={intake.hpi_md} />
+      </section>
+      <section className="intake-section">
+        <h4>Medication Reconciliation</h4>
+        <Markdown text={intake.meds_reconciliation_md} />
+      </section>
+      <section className="intake-section">
+        <h4>Resolved Contradictions</h4>
+        <Markdown text={intake.resolved_contradictions_md} />
+      </section>
+      <section className="intake-section">
+        <h4>Open Items</h4>
+        <Markdown text={intake.open_items_md} />
+      </section>
+    </article>
+  );
+}
 
-  const startSession = async () => {
-    setActionError(null);
+function TaskChecklist({ tasks }: { tasks: SpecialistTask[] }) {
+  if (tasks.length === 0) return null;
+  return (
+    <div className="panel task-panel card-in">
+      <h2>For the visit — specialist checklist</h2>
+      <ul className="task-list">
+        {tasks.map((t) => (
+          <li key={t.id} className="task-item">
+            <span className="task-check">☐</span>
+            <div>
+              <div className="task-instruction">{t.instruction}</div>
+              <div className="task-meta">
+                <span className="task-for">{t.for_specialist.replace(/_/g, " ")}</span>
+                <span className="task-why">{t.why}</span>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export function PatientScreen({ patientId }: { patientId: number }) {
+  const [page, setPage] = useState<PatientPage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [transport, setTransport] = useState<CallTransport>(
+    () => (localStorage.getItem("doc.transport") as CallTransport) || "sim",
+  );
+
+  const load = useCallback(() => {
+    api
+      .patient(patientId)
+      .then((p) => {
+        setPage(p);
+        setError(null);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "load failed"));
+  }, [patientId]);
+
+  useEffect(load, [load]);
+
+  const setTransportPersist = (t: CallTransport) => {
+    localStorage.setItem("doc.transport", t);
+    setTransport(t);
+  };
+
+  const startRun = async () => {
+    if (!page || starting) return;
     setStarting(true);
+    setError(null);
     try {
-      const res = await api.sessionCreate(nodeId);
-      location.hash = `#/session/${res.session_id}/${nodeId}/${patientId}`;
-    } catch (e) {
-      setActionError(errMsg(e));
+      const run = await api.startRun(patientId, transport);
+      navigate(`#/run/${run.id}`);
+    } catch (e: unknown) {
+      if (e instanceof ApiError && e.code === "run_in_progress" && page.latest_run) {
+        navigate(`#/run/${page.latest_run.id}`);
+      } else {
+        setError(e instanceof Error ? e.message : "failed to start run");
+      }
+    } finally {
       setStarting(false);
     }
   };
 
-  const analyze = async () => {
-    if (!file) return;
-    setAnalyzing(true);
-    setUploadError(null);
-    setUploadNote(null);
-    try {
-      const res = await api.uploadImage(nodeId, file);
-      setChart((c) => [...c, ...res.findings]);
-      setUploadNote(
-        `${res.findings.length} finding${res.findings.length === 1 ? "" : "s"} added to the chart — flagged for Dr. Zhang's review.`,
-      );
-    } catch (e) {
-      setUploadError(errMsg(e));
-    } finally {
-      setAnalyzing(false);
-    }
-  };
+  if (!page) {
+    return (
+      <div>
+        {error && <div className="error-banner">{error}</div>}
+        <p className="muted">Loading patient…</p>
+      </div>
+    );
+  }
+
+  const { patient, documents, latest_run, latest_intake, specialist_tasks } = page;
+  const hasIntake = latest_intake !== null;
+  const runUnfinished =
+    latest_run !== null && !["done", "failed"].includes(latest_run.status);
 
   return (
-    <div>
-      <div className="page-head">
+    <div className="patient-screen">
+      {error && <div className="error-banner">{error}</div>}
+
+      <header className="patient-head">
         <div>
-          <h1 className="screen-title">
-            {patient.name} <span className="muted">· DOB {patient.dob}</span>
-          </h1>
-          <div className="muted">Visit {visit.date}</div>
+          <h1 className="patient-name">{patient.name}</h1>
+          <div className="patient-meta">
+            DOB {patient.dob} · {patient.phone} ·{" "}
+            {documents.length} documents on file
+          </div>
         </div>
-        <div className="head-actions">
-          {data.active_session_id !== null ? (
-            <button
-              className="primary"
-              onClick={() => {
-                location.hash = `#/session/${data.active_session_id}/${nodeId}/${patientId}`;
-              }}
+        <div className="patient-actions">
+          <label className="transport-toggle" title="dev control">
+            <span>call via</span>
+            <select
+              value={transport}
+              onChange={(e) => setTransportPersist(e.target.value as CallTransport)}
             >
-              Resume Session
+              <option value="sim">sim</option>
+              <option value="telnyx">telnyx</option>
+            </select>
+          </label>
+          {runUnfinished ? (
+            <button className="primary big" onClick={() => navigate(`#/run/${latest_run.id}`)}>
+              View run in progress →
             </button>
           ) : (
-            viewingNode?.status === "active" && (
-              <button className="primary big" onClick={() => void startSession()} disabled={starting}>
-                {starting ? (
-                  <>
-                    <span className="spin" /> Starting…
-                  </>
-                ) : (
-                  "Start Session"
-                )}
-              </button>
-            )
-          )}
-          {station === "doctor" && (
-            <button
-              onClick={() => {
-                location.hash = `#/plan/${visit.id}/${patientId}/${nodeId}`;
-              }}
-            >
-              Plan next visit
+            <button className="primary big cleanup-btn" onClick={startRun} disabled={starting}>
+              {starting ? "Starting…" : "Clean Up Context"}
             </button>
           )}
-        </div>
-      </div>
-      {actionError && <div className="error-banner">{actionError}</div>}
-
-      <div className="panel">
-        <h2>Visit journey</h2>
-        <JourneyTimeline journey={journey} />
-      </div>
-
-      <div className="two-col">
-        <div>
-          <div className="panel">
-            <h2>Patient summary</h2>
-            <div>{patient.summary_text}</div>
-          </div>
-          <div className="panel">
-            <h2>Dr. Zhang's guardrails</h2>
-            {guardrails.length === 0 && <p className="muted">No guardrails set for this visit.</p>}
-            {guardrails.map((g) => (
-              <div key={g.id} className="guardrail-row">
-                <span className="guardrail-num">#{g.num}</span>
-                <span>
-                  {g.condition_text} <span className="muted">→</span> <strong>{g.action_text}</strong>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          {briefs.length === 0 && (
-            <div className="panel">
-              <h2>Handoffs</h2>
-              <p className="muted">No handoff briefs yet — they appear after the previous station ends its session.</p>
-            </div>
+          {latest_run && !runUnfinished && (
+            <a className="run-link" href={`#/run/${latest_run.id}`}>
+              last run →
+            </a>
           )}
-          {briefs.map((b) => (
-            <div key={b.id} className="panel">
-              <h2>Handoff from {b.from_station}</h2>
-              <div className="brief-summary">{renderMd(b.summary_md)}</div>
-              <div className="action-items">
-                {b.action_items.map((item, i) => (
-                  <div key={i} className={`action-item ${item.priority}`}>
-                    {item.text}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          {openTodos.length > 0 && (
-            <div className="panel">
-              <h2>Requested by earlier stations</h2>
-              {openTodos.map((t) => (
-                <div key={t.id} className="todo-row">
-                  <span className={`badge ${t.priority}`}>{t.priority}</span>
-                  <span>{t.text}</span>
-                </div>
+        </div>
+      </header>
+
+      {hasIntake ? (
+        <div className="before-after">
+          <section className="ba-col">
+            <h2 className="ba-title before">
+              Before <span className="ba-sub">the messy record — {documents.length} documents, untouched</span>
+            </h2>
+            <div className="doc-stack">
+              {documents.map((d, i) => (
+                <DocumentCard key={d.id} doc={d} index={i} />
               ))}
             </div>
-          )}
+          </section>
+          <section className="ba-col">
+            <h2 className="ba-title after">
+              After <span className="ba-sub">one compiled intake, phone-verified</span>
+            </h2>
+            <IntakePanel intake={latest_intake} />
+            <TaskChecklist tasks={specialist_tasks} />
+          </section>
         </div>
-      </div>
-
-      {viewingNode?.station === "imaging" && (
-        <div className="panel">
-          <h2>Upload imaging / labs</h2>
-          <div className="upload-row">
-            <input
-              type="file"
-              accept="image/png,image/jpeg"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-            <button className="primary" onClick={() => void analyze()} disabled={!file || analyzing}>
-              Analyze
-            </button>
-            {analyzing && (
-              <span className="muted">
-                <span className="spin" /> Analyzing… (3–8s)
-              </span>
-            )}
-            {uploadNote && !analyzing && <span className="success-note">{uploadNote}</span>}
-          </div>
-          {uploadError && !analyzing && <div className="error-banner" style={{ marginTop: 12 }}>{uploadError}</div>}
+      ) : (
+        <div className="doc-grid">
+          {documents.map((d, i) => (
+            <DocumentCard key={d.id} doc={d} index={i} />
+          ))}
         </div>
       )}
-
-      <div className="panel">
-        <h2>Chart</h2>
-        {chart.length === 0 && <p className="muted">No chart entries yet.</p>}
-        {groupChart(chart).map((g) => (
-          <div key={g.station} className="chart-group">
-            <h3>{g.station}</h3>
-            {g.entries.map((e) => (
-              <div
-                key={e.id}
-                className={e.category === "contradiction" ? "chart-entry contradiction" : "chart-entry"}
-              >
-                <span className="chart-cat">{e.category}</span>
-                <span>{e.text}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

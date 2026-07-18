@@ -32,7 +32,7 @@ async def build_plan(run_id: int) -> None:
         MODEL_FABLE,
         [cached_block(prompts.corpus_prefix(run_id)), block(prompts.PLAN_SYSTEM)],
         prompts.plan_user(findings),
-        max_tokens=3000,
+        max_tokens=8000,  # Fable: always-on thinking spends from this budget too
     )
 
     valid_ids = {f["id"] for f in findings}

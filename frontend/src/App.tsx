@@ -1,19 +1,14 @@
-// App shell: station switcher + hash routing. Screens live in src/screens/.
+// App shell + hash routing.
 //
 // Routes:
-//   #/                                appointments for the current station
-//   #/patient/:patientId/:nodeId      patient page (also the payoff view)
-//   #/plan/:visitId/:patientId/:nodeId  Beat D planning
-//   #/session/:sessionId/:nodeId/:patientId  live session
+//   #/               patient page for the demo patient (screens 1 and 3 — the payoff)
+//   #/run/:runId     run view — four stages lighting up live
 
 import { useEffect, useState } from "react";
-import type { Station } from "./types";
-import { AppointmentsScreen } from "./screens/AppointmentsScreen";
 import { PatientScreen } from "./screens/PatientScreen";
-import { PlanningScreen } from "./screens/PlanningScreen";
-import { SessionScreen } from "./screens/SessionScreen";
+import { RunScreen } from "./screens/RunScreen";
 
-const STATIONS: Station[] = ["nurse", "cardiology", "imaging", "doctor"];
+const DEMO_PATIENT_ID = 1;
 
 export function navigate(hash: string) {
   location.hash = hash;
@@ -31,45 +26,13 @@ function useHash(): string {
 
 export default function App() {
   const hash = useHash();
-  const [station, setStation] = useState<Station>(
-    () => (localStorage.getItem("doc.station") as Station) || "nurse",
-  );
-
-  const setStationPersist = (s: Station) => {
-    localStorage.setItem("doc.station", s);
-    setStation(s);
-    navigate("#/");
-  };
-
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+
   let screen: JSX.Element;
-  if (parts[0] === "patient" && parts.length >= 3) {
-    screen = (
-      <PatientScreen
-        patientId={Number(parts[1])}
-        nodeId={Number(parts[2])}
-        station={station}
-      />
-    );
-  } else if (parts[0] === "plan" && parts.length >= 4) {
-    screen = (
-      <PlanningScreen
-        visitId={Number(parts[1])}
-        patientId={Number(parts[2])}
-        nodeId={Number(parts[3])}
-      />
-    );
-  } else if (parts[0] === "session" && parts.length >= 4) {
-    screen = (
-      <SessionScreen
-        sessionId={Number(parts[1])}
-        nodeId={Number(parts[2])}
-        patientId={Number(parts[3])}
-        station={station}
-      />
-    );
+  if (parts[0] === "run" && parts.length >= 2 && Number.isFinite(Number(parts[1]))) {
+    screen = <RunScreen runId={Number(parts[1])} />;
   } else {
-    screen = <AppointmentsScreen station={station} />;
+    screen = <PatientScreen patientId={DEMO_PATIENT_ID} />;
   }
 
   return (
@@ -77,21 +40,9 @@ export default function App() {
       <header className="topbar">
         <a className="brand" href="#/">
           <span className="brand-mark">DOC</span>
-          <span className="brand-sub">Doctor Orchestrator Copilot</span>
+          <span className="brand-sub">cleans up context rot</span>
         </a>
-        <label className="station-switch">
-          <span>Station</span>
-          <select
-            value={station}
-            onChange={(e) => setStationPersist(e.target.value as Station)}
-          >
-            {STATIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span className="topbar-note">before the visit, not after</span>
       </header>
       <div className="disclaimer">Demo system — synthetic data only. Not for clinical use.</div>
       <main className="screen">{screen}</main>

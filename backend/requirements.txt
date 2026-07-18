@@ -3,5 +3,6 @@ uvicorn[standard]==0.35.0
 websockets==15.0.1
 python-dotenv==1.1.1
 anthropic
-python-multipart
-pillow
+httpx
+livekit-agents
+audioop-lts; python_version >= "3.13"
