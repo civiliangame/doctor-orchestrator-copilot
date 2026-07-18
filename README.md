@@ -8,7 +8,10 @@ chart entries, and to-dos — then compiles a handoff brief when the session end
 
 This branch (`yilun`) adds the **Patient Context Model (PCM)** — Phase 1 of turning DOC from
 a *reactive* copilot into an *agentic harness* that actively refines patient context and
-reasons about what still needs to be gathered.
+reasons about what still needs to be gathered — plus the **markdown chart bridge**, which
+keeps the PCM in continuous two-way sync with a per-patient markdown chart file in
+`backend/seed/patients/` (26 patients: the hand-written demo patient + 25 synthetic
+patients built from FHIR records).
 
 ---
 
@@ -74,6 +77,32 @@ turn into the slots, attributes each update to the transcript turn that said it 
 the model's quote back to the transcript), calls `record_contribution`, and broadcasts
 `context.slot_updated` with the changed slot + new completeness score.
 
+### The markdown chart bridge
+
+Every patient row points at a markdown chart file (`patients.md_file` →
+`backend/seed/patients/*.md`). `orchestrator/chart_md.py` keeps that file and the PCM in
+continuous sync, in both directions:
+
+- **Read (markdown → PCM).** `sync_from_markdown(visit_id)` runs at **session start** and at
+  the top of **every accumulator pass**. It hashes the file's authored content (the
+  DOC-managed section is excluded, so DOC's own appends never re-trigger a read); when the
+  content changed, a Sonnet pass extracts what the chart establishes into slot contributions
+  — written through `record_contribution` with `source_kind='seed'`,
+  `source_channel='chart_md'`, and a **verbatim quote from the file** as the citation. For
+  the 25 dataset patients this is also how their slots are *minted*: nothing is hardcoded;
+  the first session on a patient reads their file and derives the slots it establishes.
+  Unchanged files cost one file read + hash (no LLM call), so external edits to a chart file
+  fold into the PCM mid-session.
+- **Write (PCM → markdown).** `record_contribution` — still the single write path — mirrors
+  every live (non-seed) belief change back into the patient's file as an append-only line
+  under a `## Visit updates — DOC copilot` section: timestamp, slot, status, confidence,
+  value, actor, and quote. The authored part of the file is never rewritten (same discipline
+  as `chart_entries`). The markdown file is the patient's *living chart*.
+
+The demo patient (Maria) gets her file generated at seed time (`00-maria-alvarez.md`) and her
+visit is pre-marked as synced, so her carefully staged `SEED_FACTS` are never re-ingested
+over — the scripted demo is unaffected, but her live updates land in her file too.
+
 ### What the demo looks like
 
 Seeded patient **Maria Alvarez**: derivation produces 6 required slots; seeding fills 5 from
@@ -82,6 +111,12 @@ seeded **stale** on purpose (last week's 138/86 exists, but today needs a rechec
 **52% ready, 4 open gaps**. As the session gathers information, slots flip to `known` and the
 readiness meter climbs (e.g. "spreading to my left arm" + "chest pain is worse" → **68%**),
 each backed by a patient-attributed, quoted ledger entry.
+
+Beyond Maria, the nurse dashboard lists **25 synthetic patients** (Synthea + LLM transcripts,
+built by `scripts/build_patient_contexts.py`; roster in `backend/seed/patients/index.json`).
+Start a session on any of them: DOC reads their chart file into the PCM on the spot
+(~14 provenance-quoted slots for a typical file), and everything said in the session is
+appended back to the file.
 
 ---
 
@@ -106,6 +141,13 @@ context_ledger  (id, visit_id, slot_id, slot_key, value_written, status_written,
                  model, session_id, node_id, turn_id,
                  raw_quote,             -- verbatim citation
                  ts)                    -- append-only
+
+chart_files     (id, visit_id UNIQUE, path,
+                 content_hash,          -- hash of the file MINUS the DOC-managed section
+                 last_synced_ts,        -- last read  (markdown -> PCM ingest)
+                 last_written_ts)       -- last append (PCM -> markdown)
+
+patients        + md_file               -- markdown chart file in seed/patients ('' = none)
 ```
 
 ### API
@@ -141,15 +183,21 @@ Full TypeScript shapes (`ContextSlot`, `ContextLedgerEntry`, `ContextCompletenes
 
 ```
 backend/
-  db.py                     SQLite layer + schema (context_slots, context_ledger)
-  seed.py                   Maria Alvarez seed; derives + seeds the PCM on reset
+  db.py                     SQLite layer + schema (context_slots, context_ledger, chart_files)
+  seed.py                   Maria Alvarez seed + the 25 dataset patients from seed/patients/index.json
+  seed/patients/            per-patient markdown chart files (the living charts) + index.json
   orchestrator/
     pcm.py                  PCM core: derive / seed / record_contribution / completeness / shapes
+    chart_md.py             markdown chart bridge: file -> PCM ingest, PCM -> file append
     workers.py              per-turn workers incl. the `pcm` integrator (_handle_pcm, _attribute_turn)
     prompts.py              worker prompts incl. PCM_SYSTEM + the CONTEXT SLOTS block
-    tick.py                 per-turn fan-out; `pcm` runs in ACCUMULATOR_WORKERS
+    tick.py                 per-turn fan-out; `pcm` runs in ACCUMULATOR_WORKERS; syncs the
+                            chart file before each accumulator pass
   routes/
-    context.py             GET /api/visits/{id}/context
+    context.py              GET /api/visits/{id}/context
+    sessions.py             POST /api/sessions also runs the visit-start chart-file ingest
+scripts/
+  build_patient_contexts.py regenerates seed/patients from the synthetic-ambient-fhir-25 dataset
 frontend/src/
   components/ContextPanel.tsx   readiness meter + gap-first slot rows + provenance/ledger UI
   useSessionEvents.ts           handles context.slot_updated
@@ -183,8 +231,21 @@ curl -X POST localhost:8000/api/dev/inject-turn -H 'content-type: application/js
 curl localhost:8000/api/visits/1/context     # watch slots flip + completeness climb
 ```
 
+To see the markdown chart bridge end to end, use a dataset patient instead
+(`GET /api/appointments?station=nurse` lists all 26; Ali Kuhic's nurse node is `4` on a
+fresh DB). Starting the session ingests `seed/patients/01-ali-kuhic.md` into the PCM
+(first time costs one Sonnet call; after that it's a hash check); injected patient turns
+then append provenance-tagged lines to the file under `## Visit updates — DOC copilot`.
+Editing the file's authored sections mid-session folds back into the PCM on the next
+patient turn.
+
+`POST /api/dev/reset` re-wipes and reseeds the DB, but does **not** strip the appended
+sections from the chart files — run `git checkout -- backend/seed/patients/` for a full
+demo reset.
+
 Without `CLAUDE_API_KEY` the workers fail safe (turns persist, server stays up); the PCM
-still serves its seeded belief state, and the deterministic derive/seed/ledger paths work.
+still serves its seeded belief state, and the deterministic derive/seed/ledger paths work
+(chart-file ingest for dataset patients needs the key; the write-back path does not).
 
 ## What's next (Phase 2+)
 
